@@ -1,0 +1,105 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-white font-sans text-ink-900 antialiased;
+    /* Minimum 16px body text, 1.6 line-height for readability */
+    font-size: 16px;
+    line-height: 1.6;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    @apply font-serif text-ink-900;
+    line-height: 1.15;
+    text-wrap: balance;
+  }
+
+  /* Visible focus ring on every interactive element (keyboard nav).
+     No border-radius here — the ring must follow each element's own shape,
+     or it squares off the pills. */
+  :focus-visible {
+    @apply outline-none ring-2 ring-brand-600 ring-offset-2 ring-offset-white;
+  }
+
+  /* Users who ask for less motion get none of it */
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+@layer components {
+  .container-page {
+    @apply mx-auto w-full max-w-7xl px-5 sm:px-6 lg:px-8;
+  }
+
+  /* Pill is the house shape: buttons, inputs, selects and chips are all fully rounded. */
+  .btn {
+    @apply inline-flex cursor-pointer items-center justify-center gap-2 rounded-full px-6 py-3 text-sm font-semibold
+           transition-colors duration-200 disabled:cursor-not-allowed disabled:opacity-60;
+    min-height: 44px; /* touch target */
+  }
+
+  .btn-primary {
+    @apply btn bg-brand-700 text-white hover:bg-brand-800;
+  }
+
+  .btn-secondary {
+    @apply btn border border-ink-300 bg-white text-ink-900 hover:border-ink-900 hover:bg-ink-50;
+  }
+
+  .btn-ghost {
+    @apply btn text-ink-700 hover:bg-ink-100 hover:text-ink-900;
+  }
+
+  /* Outlined pill for use over photography — white rule, transparent centre. */
+  .btn-outline-light {
+    @apply btn border border-white/70 bg-white/5 text-white backdrop-blur
+           hover:border-white hover:bg-white/20;
+  }
+
+  /* Pill text field. Extra x-padding so text clears the rounded ends. */
+  .input {
+    @apply w-full rounded-full border border-ink-300 bg-white px-5 text-base text-ink-900
+           placeholder:text-ink-500 transition-colors duration-200 hover:border-ink-400 focus:border-brand-600;
+  }
+
+  .card {
+    @apply rounded-xl border border-ink-200 bg-white shadow-card transition-shadow duration-200;
+  }
+
+  .link-underline {
+    @apply cursor-pointer text-brand-800 underline decoration-brand-300 underline-offset-4
+           transition-colors duration-200 hover:decoration-brand-700;
+  }
+
+  .eyebrow {
+    @apply text-xs font-semibold uppercase tracking-[0.14em] text-brand-700;
+  }
+
+  .skip-link {
+    @apply sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-modal
+           focus:rounded-lg focus:bg-ink-900 focus:px-4 focus:py-3 focus:text-white;
+  }
+}
