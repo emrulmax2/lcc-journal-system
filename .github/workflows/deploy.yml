@@ -1,0 +1,103 @@
+name: Deploy
+
+# Modelled on the lcc_operation_management deploy, with two additions this project needs:
+#   1. It builds and ships the Inertia SSR bundle (bootstrap/ssr), not just the client
+#      assets — without it the public site is not server-rendered and DOIs go blank to
+#      crawlers.
+#   2. The server script restarts the SSR process and the queue worker, then runs
+#      `php artisan deploy:check` so a broken deploy fails the pipeline instead of shipping.
+#
+# Required repository secrets (Settings → Secrets and variables → Actions):
+#   SSH_PRIVATE_KEY   the deploy key's private half (multiline)
+#   SSH_PUBLIC_KEY    the public half (optional)
+#   SSH_HOST          server hostname or IP
+#   SSH_USERNAME      the cPanel / SSH user
+#   SSH_DEPLOY_PATH   absolute path to the app on the server, e.g. /home/<user>/jcdm
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      # `npm run build` = tsc --noEmit && vite build && vite build --ssr.
+      # It produces BOTH public/build (client) and bootstrap/ssr (the SSR bundle), and the
+      # tsc gate means a type error fails the deploy here rather than in production.
+      - name: Build client + SSR bundles
+        run: npm run build
+
+      - name: Setup SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_PUBLIC_KEY: ${{ secrets.SSH_PUBLIC_KEY }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+        run: |
+          set -eu
+
+          if [ -z "${SSH_PRIVATE_KEY:-}" ]; then
+            echo "::error::SSH_PRIVATE_KEY secret is missing or empty."
+            exit 1
+          fi
+
+          if [ -z "${SSH_HOST:-}" ]; then
+            echo "::error::SSH_HOST secret is missing or empty."
+            exit 1
+          fi
+
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+
+          # Preserve multiline private key and strip CRLF if pasted from Windows.
+          printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+
+          if [ -n "${SSH_PUBLIC_KEY:-}" ]; then
+            printf '%s\n' "$SSH_PUBLIC_KEY" | tr -d '\r' > ~/.ssh/id_rsa.pub
+            chmod 600 ~/.ssh/id_rsa.pub
+          fi
+
+          # Normalize host in case protocol/path was accidentally included.
+          host="$SSH_HOST"
+          host="${host#ssh://}"
+          host="${host#https://}"
+          host="${host#http://}"
+          host="${host%%/*}"
+
+          if [ -z "$host" ]; then
+            echo "::error::SSH_HOST is invalid after normalization."
+            exit 1
+          fi
+
+          ssh-keyscan -H "$host" >> ~/.ssh/known_hosts 2>/dev/null || {
+            echo "::error::ssh-keyscan failed for SSH_HOST='$host'. Verify the host/IP and network access from GitHub Actions."
+            exit 1
+          }
+          chmod 644 ~/.ssh/known_hosts
+
+      # Ship the compiled assets. Both are git-ignored, so they travel by rsync, not by the
+      # `git pull` the server script runs.
+      - name: Upload built assets (client + SSR)
+        run: |
+          rsync -avz --delete public/build/ ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }}:${{ secrets.SSH_DEPLOY_PATH }}/public/build/
+          rsync -avz --delete bootstrap/ssr/ ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }}:${{ secrets.SSH_DEPLOY_PATH }}/bootstrap/ssr/
+
+      - name: Deploy on server
+        run: |
+          ssh ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }} \
+            "DEPLOY_PATH='${{ secrets.SSH_DEPLOY_PATH }}' bash -s" < ${{ github.workspace }}/.github/workflows/deploy.sh

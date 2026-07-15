@@ -285,3 +285,75 @@ understand what is being undertaken:
 `php artisan journal:check-dois` (scheduled) resolves every registered DOI and reports any
 that 404. Link rot is the failure that destroys a journal's credibility, and it happens
 silently.
+
+---
+
+## 11. Automated deploys (GitHub Actions)
+
+§4–§7 are the **first** deploy, done by hand once. After that, pushing to `main` deploys
+itself. The pipeline lives in two files:
+
+- `.github/workflows/deploy.yml` — runs in GitHub Actions on every push to `main`.
+- `.github/workflows/deploy.sh` — runs **on the server**, over SSH, invoked by the workflow.
+
+### What it does
+
+```
+push to main
+   │
+   ├─ GitHub Actions (ubuntu):
+   │     npm ci
+   │     npm run build            → tsc gate + public/build + bootstrap/ssr
+   │     rsync public/build/  →  server
+   │     rsync bootstrap/ssr/ →  server      (both are git-ignored — they travel by rsync,
+   │                                          NOT by the git pull the server runs)
+   │     ssh server 'bash -s' < deploy.sh
+   │
+   └─ deploy.sh (on the server):
+         git pull origin main
+         composer install --no-dev --optimize-autoloader
+         php artisan migrate --force
+         php artisan storage:link
+         optimize:clear + config:cache + route:cache + view:cache + event:cache
+         php artisan queue:restart          ← workers pick up new code (§6)
+         restart the SSR process            ← loads the new bootstrap/ssr bundle (§1)
+         php artisan deploy:check           ← FATAL: a FAIL fails the deploy
+         php artisan journal:check-ssr      ← non-fatal warning; the hourly check is the backstop
+```
+
+The build runs in CI, never on the server (§4). The `tsc --noEmit` gate inside `npm run
+build` means a TypeScript error fails the deploy in Actions rather than shipping a broken
+bundle. `deploy:check` is the gate that makes the *pipeline* honest: it re-checks charset,
+migrations, the Vite manifest, the SSR bundle and (in production) `APP_DEBUG=false` and an
+`https://` `APP_URL`, and exits non-zero on any FAIL — so "the deploy script ran" and "the
+site is serving correctly" stop being two different things.
+
+### Required repository secrets
+
+*Settings → Secrets and variables → Actions:*
+
+| Secret | Value |
+|---|---|
+| `SSH_PRIVATE_KEY` | Private half of a deploy key. Generate with `ssh-keygen -t ed25519`, put the **public** half in the server account's `~/.ssh/authorized_keys`. |
+| `SSH_PUBLIC_KEY` | The public half (optional; written alongside the private key). |
+| `SSH_HOST` | Server hostname or IP. |
+| `SSH_USERNAME` | The cPanel / SSH account user. |
+| `SSH_DEPLOY_PATH` | Absolute path to the app on the server, e.g. `/home/lccacuk/jcdm`. This is the `~/jcdm` from §6, spelled out in full. |
+
+### Two things to adapt before the first automated deploy
+
+1. **The SSR restart.** `deploy.sh` defaults to *kill-and-relaunch-detached*, which leans
+   on the cron watchdog from §6 Option B. If you took **§6 Option A (systemd)** — the
+   recommended path — replace that block in `deploy.sh` with `sudo systemctl restart
+   jcdm-ssr` (and give the deploy user a targeted `sudoers` entry for exactly that command).
+   Systemd restarts cleanly; the detached fallback can be reaped when the SSH session ends,
+   which is why the watchdog exists.
+
+2. **The prerequisites `deploy.sh` assumes.** It runs `git pull`, so the server copy must be
+   a clone of this repo with `origin` set and `main` checked out. It does **not** write
+   `.env`, run `key:generate`, or seed — those are the one-time §5 steps. It also never runs
+   `DemoSeeder`. In short: do the §4–§7 first deploy by hand, confirm `journal:check-ssr` is
+   green, *then* let Actions take over.
+
+`--no-dev` means production never installs dev dependencies, so nothing in `deploy.sh`,
+`deploy:check` or the running app may depend on them.
