@@ -1,0 +1,95 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Http\Controllers;
+
+use App\Actions\AssignReviewerAction;
+use App\Actions\RespondToInvitationAction;
+use App\Actions\SubmitReviewAction;
+use App\Enums\Recommendation;
+use App\Models\ReviewAssignment;
+use App\Models\Submission;
+use App\Models\User;
+use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
+
+/**
+ * The reviewer's side of the loop: invitation → accept/decline → report.
+ *
+ * Every endpoint is authorised against ReviewAssignmentPolicy, which is what stops one
+ * reviewer answering, reading or reporting on another reviewer's invitation. The
+ * authorisation is by ASSIGNMENT, not by submission: two reviewers on one manuscript have
+ * exactly the same relationship to it and only their own assignment tells them apart.
+ */
+final class ReviewController extends Controller
+{
+    public function accept(Request $request, ReviewAssignment $assignment, RespondToInvitationAction $respond): RedirectResponse
+    {
+        $this->authorize('respond', $assignment);
+
+        $respond->execute($assignment, true, $request->user());
+
+        return back()->with('success', 'Thank you — the manuscript is in your review queue.');
+    }
+
+    public function decline(Request $request, ReviewAssignment $assignment, RespondToInvitationAction $respond): RedirectResponse
+    {
+        $this->authorize('respond', $assignment);
+
+        $respond->execute($assignment, false, $request->user());
+
+        return back()->with('success', 'Invitation declined. The editor has been notified.');
+    }
+
+    public function report(Request $request, ReviewAssignment $assignment, SubmitReviewAction $submitReview): RedirectResponse
+    {
+        $this->authorize('submitReport', $assignment);
+
+        $data = $request->validate([
+            'recommendation' => ['required', Rule::enum(Recommendation::class)],
+            'comments_to_author' => ['required', 'string'],
+
+            // CONFIDENTIAL. Optional, and it goes to the editor alone — no author-facing
+            // response in this system ever reads this column. See Review and
+            // SubmissionPresenter.
+            'comments_to_editor' => ['nullable', 'string'],
+        ]);
+
+        $submitReview->execute(
+            $assignment,
+            Recommendation::from($data['recommendation']),
+            $data['comments_to_author'],
+            $data['comments_to_editor'] ?? null,
+            $request->user(),
+        );
+
+        return back()->with('success', 'Your report has been sent to the handling editor.');
+    }
+
+    /**
+     * Invite a reviewer. There is no UI for this yet — the Dashboard is read-only about
+     * reviewers — but the transition has to exist somewhere authorised and audited rather
+     * than only in a test, because it is the one an author's challenge turns on: "who
+     * assigned that reviewer, and when".
+     */
+    public function invite(Request $request, Submission $submission, AssignReviewerAction $assign): RedirectResponse
+    {
+        $this->authorize('assignReviewers', $submission);
+
+        $data = $request->validate([
+            'reviewer_id' => ['required', 'integer', 'exists:users,id'],
+            'due_at' => ['nullable', 'date', 'after:today'],
+        ]);
+
+        $assign->execute(
+            $submission,
+            User::findOrFail($data['reviewer_id']),
+            $request->user(),
+            filled($data['due_at'] ?? null) ? now()->parse($data['due_at']) : null,
+        );
+
+        return back()->with('success', 'The reviewer has been invited.');
+    }
+}

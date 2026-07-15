@@ -1,0 +1,234 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-white font-sans text-ink-900 antialiased;
+    /* Minimum 16px body text, 1.6 line-height for readability */
+    font-size: 16px;
+    line-height: 1.6;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    @apply font-serif text-ink-900;
+    line-height: 1.15;
+    text-wrap: balance;
+  }
+
+  /* Visible focus ring on every interactive element (keyboard nav).
+     No border-radius here — the ring must follow each element's own shape,
+     or it squares off the pills. */
+  :focus-visible {
+    @apply outline-none ring-2 ring-brand-600 ring-offset-2 ring-offset-white;
+  }
+
+  /* ------------------------------------------------------------------------
+     Scroll reveal.
+
+     Note what is NOT here: there is no rule that hides an element by default.
+     [data-reveal="pending"] is applied by JavaScript, at runtime, and ONLY to
+     elements that are below the fold at that moment. So the server HTML, the
+     no-JS experience and every crawler get fully visible content, and it is
+     structurally impossible for this system to hide the page from Google
+     Scholar the way the previous framer-motion version did.
+     ------------------------------------------------------------------------ */
+  [data-reveal='pending'] {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+
+  [data-reveal='shown'] {
+    opacity: 1;
+    transform: none;
+    /* 450ms entrance, custom ease — matches the design system's motion spec. */
+    transition:
+      opacity 0.45s cubic-bezier(0.22, 1, 0.36, 1) var(--reveal-delay, 0s),
+      transform 0.45s cubic-bezier(0.22, 1, 0.36, 1) var(--reveal-delay, 0s);
+  }
+
+  /* Users who ask for less motion get none of it */
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+    /* Belt and braces: even if JS marked something pending before the media
+       query was consulted, it must never stay invisible. */
+    [data-reveal] {
+      opacity: 1 !important;
+      transform: none !important;
+    }
+  }
+}
+
+@layer components {
+  .container-page {
+    @apply mx-auto w-full max-w-7xl px-5 sm:px-6 lg:px-8;
+  }
+
+  /* Pill is the house shape: buttons, inputs, selects and chips are all fully rounded.
+     whitespace-nowrap: a two-word button ("Submit research", "Log in") was wrapping to
+     two lines and buckling the header. A button label must never wrap. */
+  .btn {
+    @apply inline-flex cursor-pointer items-center justify-center gap-2 whitespace-nowrap rounded-full px-6 py-3
+           text-sm font-semibold transition-colors duration-200 disabled:cursor-not-allowed disabled:opacity-60;
+    min-height: 44px; /* touch target */
+  }
+
+  .btn-primary {
+    @apply btn bg-brand-700 text-white hover:bg-brand-800;
+  }
+
+  .btn-secondary {
+    @apply btn border border-ink-300 bg-white text-ink-900 hover:border-ink-900 hover:bg-ink-50;
+  }
+
+  .btn-ghost {
+    @apply btn text-ink-700 hover:bg-ink-100 hover:text-ink-900;
+  }
+
+  /* Outlined pill for use over photography — white rule, transparent centre. */
+  .btn-outline-light {
+    @apply btn border border-white/70 bg-white/5 text-white backdrop-blur
+           hover:border-white hover:bg-white/20;
+  }
+
+  /* Pill text field. Extra x-padding so text clears the rounded ends. */
+  .input {
+    @apply w-full rounded-full border border-ink-300 bg-white px-5 text-base text-ink-900
+           placeholder:text-ink-500 transition-colors duration-200 hover:border-ink-400 focus:border-brand-600;
+  }
+
+  .card {
+    @apply rounded-xl border border-ink-200 bg-white shadow-card transition-shadow duration-200;
+  }
+
+  .link-underline {
+    @apply cursor-pointer text-brand-800 underline decoration-brand-300 underline-offset-4
+           transition-colors duration-200 hover:decoration-brand-700;
+  }
+
+  .eyebrow {
+    @apply text-xs font-semibold uppercase tracking-[0.14em] text-brand-700;
+  }
+
+  .skip-link {
+    @apply sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-modal
+           focus:rounded-lg focus:bg-ink-900 focus:px-4 focus:py-3 focus:text-white;
+  }
+
+  /* --------------------------------------------------------------------------
+     CMS long-form prose.
+
+     The typography for server-rendered Markdown — policy pages, news bodies,
+     calls for papers, a journal's aims and scope. The HTML arrives finished and
+     safe from MarkdownRenderer (html_input: 'escape'), carrying no classes of
+     its own, so the styling has to be applied from the outside, here.
+
+     Written by hand rather than with @tailwindcss/typography: the plugin is not
+     installed, and adding a dependency to style five element types would be a
+     poor trade. Long-form text is 1.75 line-height and capped at max-w-prose
+     (68ch), per the design system.
+     -------------------------------------------------------------------------- */
+  .prose-cms {
+    @apply text-ink-800;
+    line-height: 1.75;
+  }
+
+  .prose-cms > * + * {
+    @apply mt-5;
+  }
+
+  .prose-cms h2 {
+    @apply mt-10 font-serif text-2xl text-ink-900;
+  }
+
+  .prose-cms h3 {
+    @apply mt-8 font-serif text-xl text-ink-900;
+  }
+
+  .prose-cms h4 {
+    @apply mt-6 font-serif text-lg text-ink-900;
+  }
+
+  .prose-cms p {
+    @apply text-ink-800;
+  }
+
+  .prose-cms a {
+    @apply cursor-pointer text-brand-800 underline decoration-brand-300 underline-offset-4
+           transition-colors duration-200 hover:decoration-brand-700;
+  }
+
+  .prose-cms strong {
+    @apply font-semibold text-ink-900;
+  }
+
+  .prose-cms ul {
+    @apply list-disc space-y-2 pl-6;
+  }
+
+  .prose-cms ol {
+    @apply list-decimal space-y-2 pl-6;
+  }
+
+  .prose-cms li::marker {
+    @apply text-ink-500;
+  }
+
+  .prose-cms blockquote {
+    @apply border-l-4 border-brand-600 bg-brand-50 py-4 pl-6 pr-5 font-serif text-lg text-ink-900;
+  }
+
+  .prose-cms code {
+    @apply rounded bg-ink-100 px-1.5 py-0.5 font-mono text-sm text-ink-800;
+  }
+
+  .prose-cms pre {
+    @apply overflow-x-auto rounded-lg bg-ink-50 p-4 font-mono text-sm text-ink-800;
+  }
+
+  .prose-cms pre code {
+    @apply bg-transparent p-0;
+  }
+
+  .prose-cms hr {
+    @apply border-ink-200;
+  }
+
+  /* A policy page carries fee tables. They must scroll rather than push the page
+     sideways on a phone — hence the wrapper in the pages that render this. */
+  .prose-cms table {
+    @apply w-full border-collapse text-left text-sm;
+  }
+
+  .prose-cms th {
+    @apply border-b border-ink-300 pb-2 pr-4 font-semibold text-ink-900;
+  }
+
+  .prose-cms td {
+    @apply border-b border-ink-200 py-2 pr-4 align-top text-ink-700;
+  }
+
+  .prose-cms img {
+    @apply max-w-full rounded-lg;
+  }
+}

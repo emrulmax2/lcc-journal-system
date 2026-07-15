@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="vendor/phpunit/phpunit/phpunit.xsd"
+         bootstrap="vendor/autoload.php"
+         colors="true"
+>
+    <testsuites>
+        <testsuite name="Unit">
+            <directory>tests/Unit</directory>
+        </testsuite>
+        <testsuite name="Feature">
+            <directory>tests/Feature</directory>
+        </testsuite>
+    </testsuites>
+    <source>
+        <include>
+            <directory>app</directory>
+        </include>
+    </source>
+    <php>
+        <!--
+            Validating against Crossref's real XSD graph (21 schemas, ~800KB, including
+            the full JATS + MathML3 element set) compiles a very large grammar in libxml.
+            At PHP's default limit it does not merely fail — it SEGFAULTS, taking the
+            whole suite with it and giving no clue why. Raise it.
+        -->
+        <ini name="memory_limit" value="1G"/>
+        <env name="APP_ENV" value="testing"/>
+        <env name="APP_MAINTENANCE_DRIVER" value="file"/>
+        <env name="BCRYPT_ROUNDS" value="4"/>
+        <env name="BROADCAST_CONNECTION" value="null"/>
+        <env name="CACHE_STORE" value="array"/>
+        <!--
+            Tests run against a REAL MySQL database, not SQLite in memory.
+
+            The schema depends on things SQLite does not have: a FULLTEXT index on
+            articles(title, abstract), ENUM columns, and utf8mb4 collation behaviour.
+            Testing on SQLite would be testing a schema we never deploy, and would have
+            hidden the latin1 charset trap entirely.
+        -->
+        <env name="DB_CONNECTION" value="mysql"/>
+        <env name="DB_DATABASE" value="lcc_journal_test"/>
+        <env name="DB_CHARSET" value="utf8mb4"/>
+        <env name="DB_COLLATION" value="utf8mb4_unicode_ci"/>
+        <env name="DB_URL" value=""/>
+        <env name="MAIL_MAILER" value="array"/>
+        <env name="QUEUE_CONNECTION" value="sync"/>
+        <env name="SESSION_DRIVER" value="array"/>
+        <env name="PULSE_ENABLED" value="false"/>
+        <env name="TELESCOPE_ENABLED" value="false"/>
+        <env name="NIGHTWATCH_ENABLED" value="false"/>
+    </php>
+</phpunit>

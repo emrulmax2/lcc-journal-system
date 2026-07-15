@@ -1,6 +1,9 @@
 /** @type {import('tailwindcss').Config} */
 export default {
-  content: ['./index.html', './src/**/*.{ts,tsx}'],
+  content: [
+    './resources/views/**/*.blade.php',
+    './resources/js/**/*.{ts,tsx}',
+  ],
   theme: {
     extend: {
       colors: {
@@ -34,9 +37,29 @@ export default {
         gold: {
           50: '#FFFBEB',
           100: '#FEF3C7',
+          200: '#FDE68A',
+          300: '#FCD34D',
+          400: '#FBBF24',
           500: '#D97706',
           600: '#B45309',
           700: '#92400E',
+        },
+        // Status carriers. Deposit failures, review recommendations and submission
+        // states were reaching for stock emerald/red utilities, which sit outside the
+        // design system and so could never be restyled centrally. They get real tokens.
+        success: {
+          50: '#ECFDF5',
+          100: '#D1FAE5',
+          600: '#059669',
+          700: '#047857',
+          800: '#065F46',
+        },
+        danger: {
+          50: '#FEF2F2',
+          100: '#FEE2E2',
+          600: '#DC2626',
+          700: '#B91C1C',
+          800: '#991B1B',
         },
       },
       fontFamily: {
