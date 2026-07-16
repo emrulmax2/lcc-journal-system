@@ -36,6 +36,7 @@ final class DashboardController extends Controller
 {
     public function __invoke(Request $request): Response
     {
+        
         $user = $request->user();
 
         // Journals where this person is an editor: the ones whose full queue they may see.
