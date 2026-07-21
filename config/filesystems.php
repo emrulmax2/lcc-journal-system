@@ -38,10 +38,39 @@ return [
             'report' => false,
         ],
 
+        /*
+         * Covers, hero images and every other uploaded asset the public site renders.
+         *
+         * THE URL IS ROOT-RELATIVE, AND THAT IS THE FIX FOR A REAL BUG.
+         *
+         * It used to be `APP_URL.'/storage'` — Laravel's stock line. That bakes ONE absolute
+         * host into every image URL in the app, and it is wrong the moment the host you
+         * browse is not the host in .env. On WAMP that is the normal case: APP_URL still said
+         * http://127.0.0.1:8000 (the `artisan serve` port) while the site was being served by
+         * Apache on :80, so every <img> pointed at a port with nothing listening and EVERY
+         * image on the site rendered as the neutral placeholder.
+         *
+         * It is easy to miss because the stylesheet still loads: Vite's asset() derives its
+         * URLs from the CURRENT REQUEST ROOT, so the page looks perfect and only the images —
+         * the one thing that goes through Storage::url() — are dead.
+         *
+         * '/storage' resolves against whatever origin served the page, so artisan serve, the
+         * Apache vhost and cPanel all work with no .env change and nothing to keep in sync.
+         *
+         * PUBLIC_DISK_URL is the escape hatch, and there are two real reasons to set it:
+         *   - the app is served from a SUBDIRECTORY (http://localhost/lcc-journal-system/public)
+         *     rather than the root of its own host — then set /lcc-journal-system/public/storage
+         *   - assets move to a CDN or a bucket, which needs a full absolute origin
+         *
+         * Safe because nothing machine-readable consumes these URLs: the citation meta tags,
+         * the sitemap, the Atom feed and the Crossref deposit all build their URLs from
+         * route()/landingUrl(), and there is no og:image anywhere. Only the React UI reads
+         * Media::url, where a root-relative src is exactly right.
+         */
         'public' => [
             'driver' => 'local',
             'root' => storage_path('app/public'),
-            'url' => rtrim(env('APP_URL', 'http://localhost'), '/').'/storage',
+            'url' => env('PUBLIC_DISK_URL', '/storage'),
             'visibility' => 'public',
             'throw' => false,
             'report' => false,

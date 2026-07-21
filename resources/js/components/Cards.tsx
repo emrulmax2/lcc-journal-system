@@ -27,6 +27,8 @@ export type JournalCardData = {
   title: string
   field: string
   description: string
+  /** The uploaded cover, mapped from JournalResource's `coverImage` by toJournalCard(). */
+  image: MediaImage | null
   photo: PhotoKey | null
   impactFactor: number | null
   citeScore: number | null
@@ -107,7 +109,7 @@ export function JournalCard({ journal }: { journal: JournalCardData }) {
       >
         <div className="aspect-[16/9] w-full overflow-hidden">
           <CardImage
-            image={null}
+            image={journal.image}
             photo={journal.photo}
             alt=""
             width={800}

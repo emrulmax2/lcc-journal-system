@@ -160,6 +160,8 @@ export type Journal = {
   abbreviation: string | null
   field: string | null
   description: string | null
+  /** A real, uploaded cover. Takes precedence over `photo` — see toJournalCard(). */
+  coverImage: MediaImage | null
   photo: PhotoKey | null
   openAccess: boolean
   publicationModel: 'continuous' | 'issue_based'
@@ -496,6 +498,11 @@ export function toJournalCard(journal: Journal): JournalCardData {
     ...journal,
     field: journal.field ?? '—',
     description: journal.description ?? '',
+    // The card calls it `image`, the resource calls it `coverImage`. The rename happens
+    // here, in the adapter, like every other card. It used to happen NOWHERE, so
+    // JournalCard hardcoded `image={null}` and every uploaded cover on /journals and the
+    // homepage rendered as the neutral placeholder.
+    image: journal.coverImage ?? null,
   }
 }
 
