@@ -28,6 +28,7 @@ use App\Http\Controllers\Auth\LoginController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DecisionController;
 use App\Http\Controllers\LocaleController;
+use App\Http\Controllers\MyAccountController;
 use App\Http\Controllers\Public\ArticleController;
 use App\Http\Controllers\Public\CitationController;
 use App\Http\Controllers\Public\HomeController;
@@ -162,6 +163,25 @@ Route::post('/submit/draft', [SubmissionController::class, 'storeDraft'])->name(
 
 Route::middleware('auth')->group(function () {
     Route::get('/dashboard', DashboardController::class)->name('dashboard');
+
+    /*
+    | MY ACCOUNT — yourself, not somebody else.
+    |
+    | `auth` and nothing further, deliberately: every reviewer and every author needs to fix
+    | their own name before it reaches a Crossref deposit, and none of them hold `manage-users`.
+    | There is no {account} parameter, so there is no one else these routes could name — which
+    | is why they need no policy. Managing OTHER people is admin.accounts.* below, gated.
+    |
+    | The password route is separate from the profile route because the two fail differently:
+    | a wrong current password must not throw away a corrected affiliation.
+    */
+    Route::get('/account', [MyAccountController::class, 'edit'])->name('account.edit');
+    Route::put('/account', [MyAccountController::class, 'update'])->name('account.update');
+    Route::put('/account/password', [MyAccountController::class, 'updatePassword'])
+        // Throttled: this endpoint reveals whether a guessed `current_password` was right,
+        // so it is an oracle if you can hit it in a loop.
+        ->middleware('throttle:10,60')
+        ->name('account.password');
 
     // The reviewer's own invitation. ReviewAssignmentPolicy refuses every other reviewer's.
     Route::post('/reviews/{assignment}/accept', [ReviewController::class, 'accept'])->name('reviews.accept');

@@ -17,7 +17,7 @@ import {
 } from 'lucide-react'
 import { easeOut } from '@/lib/motion'
 import { menuItems, mediaSetting, setting, useShared } from '@/lib/props'
-import type { MenuItem } from '@/lib/props'
+import type { AuthUser, MenuItem } from '@/lib/props'
 import { peopleHref } from '@/lib/admin'
 import { contentHref } from '@/lib/content'
 import Logo from '@/components/Logo'
@@ -46,17 +46,94 @@ function isActivePath(path: string, href: string): boolean {
 }
 
 /**
- * THE SIGNED-IN WORKSPACE — /dashboard (the editorial office) and everything under /admin
- * (editorial admin, site content, accounts). Not "is the user signed in": a signed-in author
- * reading an article is ON THE SITE and gets the site's bar.
+ * THE SIGNED-IN WORKSPACE — /dashboard (the editorial office), everything under /admin
+ * (editorial admin, site content, accounts) and /account. Not "is the user signed in": a
+ * signed-in author reading an article is ON THE SITE and gets the site's bar.
  *
- * Inside the workspace the bar stops advertising the workspace. The account dropdown's
- * destination links are already the workspace's own left-hand navigation, so repeating them
- * in a dropdown is noise — only Log out survives. And "Submit research" gives way to the one
- * thing that has no other affordance in here: the way back out to the public site.
+ * In here the bar becomes the workspace's own bar. The reading nav (Journals, Articles,
+ * Research Topics, News, For authors) is not what you are doing, so it gives way to the four
+ * workspace destinations; the dropdown drops to the two things that are about YOU rather than
+ * about a destination; and "Submit research" becomes the way back out to the public site.
  */
 function isWorkspacePath(path: string): boolean {
-  return isActivePath(path, '/dashboard') || isActivePath(path, '/admin')
+  return (
+    isActivePath(path, '/dashboard') ||
+    isActivePath(path, '/admin') ||
+    isActivePath(path, '/account')
+  )
+}
+
+/**
+ * The four workspace destinations, in the order the bar shows them.
+ *
+ * Role-gated by exactly the questions the server asks — canAccessAdmin is the /admin gate,
+ * canManageSiteContent the `manage-site-content` gate, canManageAccounts `manage-users`. A
+ * link only appears when the destination would actually admit them, and the server re-checks
+ * regardless: a hidden link is a courtesy, never the control. Dashboard has no gate because
+ * every signed-in person has one.
+ */
+type WorkspaceLink = {
+  label: string
+  url: string
+  icon: LucideIcon
+  /**
+   * The path prefixes that mark this link current — NOT derivable from `url`, because these
+   * four destinations are nested inside each other. /admin/users is under /admin, so a plain
+   * prefix test lights "Editorial admin" AND "Accounts" at once. Longest match wins; see
+   * activeWorkspaceUrl.
+   */
+  match: string[]
+}
+
+function workspaceNav(user: AuthUser): WorkspaceLink[] {
+  return [
+    { label: 'Dashboard', url: '/dashboard', icon: LayoutDashboard, match: ['/dashboard'], show: true },
+    {
+      label: 'Editorial admin',
+      url: '/admin',
+      icon: Gauge,
+      match: ['/admin'],
+      show: user.canAccessAdmin,
+    },
+    {
+      label: 'Site content',
+      url: contentHref.settings,
+      icon: LayoutTemplate,
+      match: ['/admin/content'],
+      show: user.canManageSiteContent,
+    },
+    {
+      label: 'Accounts',
+      url: peopleHref.accounts,
+      icon: UserCog,
+      // Roles live under the same People shell — /admin/roles belongs to this tab, exactly as
+      // it does in AdminShell.
+      match: ['/admin/users', '/admin/roles'],
+      show: user.canManageAccounts,
+    },
+  ]
+    .filter((item) => item.show)
+    .map(({ label, url, icon, match }) => ({ label, url, icon, match }))
+}
+
+/**
+ * Which workspace link is current — the one whose matching prefix is LONGEST, so /admin/users
+ * lights "Accounts" rather than the "/admin" it also sits under. Returns null on a workspace
+ * page that is nobody's tab (/account), where lighting an unrelated one would be a lie.
+ */
+function activeWorkspaceUrl(path: string, links: WorkspaceLink[]): string | null {
+  let best: { url: string; length: number } | null = null
+
+  for (const link of links) {
+    for (const prefix of link.match) {
+      if (!isActivePath(path, prefix)) continue
+      if (best === null || prefix.length > best.length) {
+        best = { url: link.url, length: prefix.length }
+      }
+    }
+  }
+
+  return best?.url ?? null
 }
 
 export default function Navbar({ overHero }: { overHero: boolean }) {
@@ -69,7 +146,16 @@ export default function Navbar({ overHero }: { overHero: boolean }) {
   const { auth, site } = useShared()
 
   const path = currentPath(url)
-  const inWorkspace = isWorkspacePath(path)
+
+  /*
+   * Signed in AND standing in the workspace. Both halves matter: a signed-out visitor cannot
+   * reach these paths (they are behind `auth`), but the error pages CAN render under one —
+   * a 403 at /admin is served by the Inertia error handler with auth.user null, and a bar
+   * that then rendered workspace links to a guest would be nonsense.
+   */
+  const inWorkspace = auth.user !== null && isWorkspacePath(path)
+  const workspaceLinks = auth.user && inWorkspace ? workspaceNav(auth.user) : []
+  const activeWorkspace = activeWorkspaceUrl(path, workspaceLinks)
 
   /**
    * EVERYTHING IN THIS BAR COMES FROM THE CMS.
@@ -200,20 +286,43 @@ export default function Navbar({ overHero }: { overHero: boolean }) {
           )}
         </Link>
 
-        {/* Desktop nav — every link from `site.menus.main`. */}
+        {/* Desktop nav. On the site: every link from `site.menus.main`, plus the authors
+            mega. In the workspace: the four workspace destinations instead — the reading nav
+            is not the job in hand, and the CMS menu has no business steering the admin. */}
         <div className="ml-10 hidden items-center gap-1 lg:flex xl:ml-14">
-          {nav.map((item) => (
-            <NavLink key={item.id} item={item} className={navLinkClass(isActivePath(path, item.url))} active={isActivePath(path, item.url)} />
-          ))}
+          {inWorkspace ? (
+            workspaceLinks.map((item) => {
+              const Icon = item.icon
+              const active = item.url === activeWorkspace
 
-          {authorLinks.length > 0 && (
-            <MegaButton
-              label="For authors"
-              open={mega === 'authors'}
-              transparent={transparent}
-              onToggle={() => setMega(mega === 'authors' ? null : 'authors')}
-              onHover={() => setMega('authors')}
-            />
+              return (
+                <Link
+                  key={item.url}
+                  href={item.url}
+                  aria-current={active ? 'page' : undefined}
+                  className={`${navLinkClass(active)} inline-flex items-center gap-2`}
+                >
+                  <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
+                  {item.label}
+                </Link>
+              )
+            })
+          ) : (
+            <>
+              {nav.map((item) => (
+                <NavLink key={item.id} item={item} className={navLinkClass(isActivePath(path, item.url))} active={isActivePath(path, item.url)} />
+              ))}
+
+              {authorLinks.length > 0 && (
+                <MegaButton
+                  label="For authors"
+                  open={mega === 'authors'}
+                  transparent={transparent}
+                  onToggle={() => setMega(mega === 'authors' ? null : 'authors')}
+                  onHover={() => setMega('authors')}
+                />
+              )}
+            </>
           )}
         </div>
 
@@ -398,24 +507,44 @@ export default function Navbar({ overHero }: { overHero: boolean }) {
                 </div>
               </form>
 
+              {/* The same swap as the desktop bar: workspace destinations in the workspace,
+                  the CMS reading nav on the site. */}
               <ul className="mt-6 space-y-1">
-                {nav.map((item) => (
-                  <li key={item.id}>
-                    <NavLink
-                      item={item}
-                      active={isActivePath(path, item.url)}
-                      className="flex min-h-[48px] cursor-pointer items-center rounded-lg px-3 text-base
-                                 font-medium text-ink-800 transition-colors duration-200 hover:bg-ink-100"
-                    />
-                  </li>
-                ))}
+                {inWorkspace
+                  ? workspaceLinks.map((item) => {
+                      const Icon = item.icon
+
+                      return (
+                        <li key={item.url}>
+                          <Link
+                            href={item.url}
+                            aria-current={item.url === activeWorkspace ? 'page' : undefined}
+                            className="flex min-h-[48px] cursor-pointer items-center gap-2.5 rounded-lg px-3
+                                       text-base font-medium text-ink-800 transition-colors duration-200 hover:bg-ink-100"
+                          >
+                            <Icon className="h-4 w-4 shrink-0 text-ink-500" aria-hidden="true" />
+                            {item.label}
+                          </Link>
+                        </li>
+                      )
+                    })
+                  : nav.map((item) => (
+                      <li key={item.id}>
+                        <NavLink
+                          item={item}
+                          active={isActivePath(path, item.url)}
+                          className="flex min-h-[48px] cursor-pointer items-center rounded-lg px-3 text-base
+                                     font-medium text-ink-800 transition-colors duration-200 hover:bg-ink-100"
+                        />
+                      </li>
+                    ))}
               </ul>
 
               {/* The "Browse by field" list is gone from both the drawer and the mega menu.
                   The fields it rendered came from the deleted fixture, and the real ones are
                   not in the shared prop — so this is a link to the journal index rather than
                   an invented list of disciplines we may or may not publish in. */}
-              {authorLinks.length > 0 && (
+              {!inWorkspace && authorLinks.length > 0 && (
                 <div className="mt-6 space-y-1 border-t border-ink-200 pt-6">
                   <p className="eyebrow">For authors</p>
                   <ul className="space-y-1 pt-1">
@@ -433,41 +562,52 @@ export default function Navbar({ overHero }: { overHero: boolean }) {
                 </div>
               )}
 
-              {/* Signed-in account links, role-gated — the same set as the desktop dropdown,
-                  and suppressed inside the workspace for the same reason. */}
-              {auth.user && !inWorkspace && (
+              {/* Signed-in account links — the same two sets as the desktop dropdown, split
+                  the same way: destinations on the site, "about me" in the workspace. */}
+              {auth.user && (
                 <div className="mt-6 space-y-1 border-t border-ink-200 pt-6">
                   <p className="eyebrow">{auth.user.name}</p>
                   <ul className="space-y-1 pt-1">
-                    <li>
-                      <Link href="/dashboard" className="flex min-h-[44px] items-center gap-2.5 rounded-lg px-3 text-sm text-ink-700 hover:bg-ink-100 hover:text-ink-900">
-                        <LayoutDashboard className="h-4 w-4 text-ink-500" aria-hidden="true" />
-                        Dashboard
-                      </Link>
-                    </li>
-                    {auth.user.canAccessAdmin && (
+                    {inWorkspace ? (
                       <li>
-                        <Link href="/admin" className="flex min-h-[44px] items-center gap-2.5 rounded-lg px-3 text-sm text-ink-700 hover:bg-ink-100 hover:text-ink-900">
-                          <Gauge className="h-4 w-4 text-ink-500" aria-hidden="true" />
-                          Editorial admin
+                        <Link href="/account" className="flex min-h-[44px] items-center gap-2.5 rounded-lg px-3 text-sm text-ink-700 hover:bg-ink-100 hover:text-ink-900">
+                          <UserRound className="h-4 w-4 text-ink-500" aria-hidden="true" />
+                          My account
                         </Link>
                       </li>
-                    )}
-                    {auth.user.canManageSiteContent && (
-                      <li>
-                        <Link href={contentHref.settings} className="flex min-h-[44px] items-center gap-2.5 rounded-lg px-3 text-sm text-ink-700 hover:bg-ink-100 hover:text-ink-900">
-                          <LayoutTemplate className="h-4 w-4 text-ink-500" aria-hidden="true" />
-                          Site content
-                        </Link>
-                      </li>
-                    )}
-                    {auth.user.canManageAccounts && (
-                      <li>
-                        <Link href={peopleHref.accounts} className="flex min-h-[44px] items-center gap-2.5 rounded-lg px-3 text-sm text-ink-700 hover:bg-ink-100 hover:text-ink-900">
-                          <UserCog className="h-4 w-4 text-ink-500" aria-hidden="true" />
-                          Accounts
-                        </Link>
-                      </li>
+                    ) : (
+                      <>
+                        <li>
+                          <Link href="/dashboard" className="flex min-h-[44px] items-center gap-2.5 rounded-lg px-3 text-sm text-ink-700 hover:bg-ink-100 hover:text-ink-900">
+                            <LayoutDashboard className="h-4 w-4 text-ink-500" aria-hidden="true" />
+                            Dashboard
+                          </Link>
+                        </li>
+                        {auth.user.canAccessAdmin && (
+                          <li>
+                            <Link href="/admin" className="flex min-h-[44px] items-center gap-2.5 rounded-lg px-3 text-sm text-ink-700 hover:bg-ink-100 hover:text-ink-900">
+                              <Gauge className="h-4 w-4 text-ink-500" aria-hidden="true" />
+                              Editorial admin
+                            </Link>
+                          </li>
+                        )}
+                        {auth.user.canManageSiteContent && (
+                          <li>
+                            <Link href={contentHref.settings} className="flex min-h-[44px] items-center gap-2.5 rounded-lg px-3 text-sm text-ink-700 hover:bg-ink-100 hover:text-ink-900">
+                              <LayoutTemplate className="h-4 w-4 text-ink-500" aria-hidden="true" />
+                              Site content
+                            </Link>
+                          </li>
+                        )}
+                        {auth.user.canManageAccounts && (
+                          <li>
+                            <Link href={peopleHref.accounts} className="flex min-h-[44px] items-center gap-2.5 rounded-lg px-3 text-sm text-ink-700 hover:bg-ink-100 hover:text-ink-900">
+                              <UserCog className="h-4 w-4 text-ink-500" aria-hidden="true" />
+                              Accounts
+                            </Link>
+                          </li>
+                        )}
+                      </>
                     )}
                   </ul>
                 </div>
@@ -551,9 +691,16 @@ function NavLink({
  * its space. Self-contained: its own click-outside and Escape handling, independent of the
  * mega menu's.
  *
- * `inWorkspace` empties it down to Log out: see isWorkspacePath. The role gates below still
- * apply on the site side, and the server re-checks either way — a hidden link is a courtesy,
- * never the control.
+ * TWO DIFFERENT MENUS, because the same control answers a different question in each place.
+ *
+ *   On the site      — "where can I go?" Dashboard, Editorial admin, Site content, Accounts,
+ *                      role-gated. This is the only route into the workspace.
+ *   In the workspace — "what about me?" Those four destinations are the bar's own nav there,
+ *                      so repeating them is noise. What is left is the pair that is about the
+ *                      PERSON rather than a destination: My account, and Log out.
+ *
+ * The role gates still apply on the site side, and the server re-checks either way — a hidden
+ * link is a courtesy, never the control.
  */
 function UserMenu({
   name,
@@ -620,7 +767,9 @@ function UserMenu({
             transition={{ duration: 0.15, ease: easeOut }}
             className="absolute right-0 z-dropdown mt-2 w-52 rounded-xl border border-ink-200 bg-white p-1.5 shadow-lift"
           >
-            {!inWorkspace && (
+            {inWorkspace ? (
+              <MenuLink href="/account" icon={UserRound} label="My account" onNavigate={() => setOpen(false)} />
+            ) : (
               <>
                 <MenuLink href="/dashboard" icon={LayoutDashboard} label="Dashboard" onNavigate={() => setOpen(false)} />
 
@@ -635,10 +784,10 @@ function UserMenu({
                 {canManageAccounts && (
                   <MenuLink href={peopleHref.accounts} icon={UserCog} label="Accounts" onNavigate={() => setOpen(false)} />
                 )}
-
-                <div className="my-1.5 border-t border-ink-100" />
               </>
             )}
+
+            <div className="my-1.5 border-t border-ink-100" />
 
             <button
               type="button"
