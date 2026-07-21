@@ -53,6 +53,7 @@ class DeployCheckCommand extends Command
         $this->checkWritablePaths();
         $this->checkViteManifest();
         $this->checkSsrBundle();
+        $this->checkViteHotFile();
         $this->checkSsrConfig();
         $this->checkConfigCached();
         $this->checkQueue();
@@ -234,6 +235,35 @@ class DeployCheckCommand extends Command
 
         $this->result('fail', 'SSR bundle', 'bootstrap/ssr/ssr.js is missing — `vite build --ssr` did not run or was not uploaded. The public site will not be server-rendered.');
         $this->failed = true;
+    }
+
+    private function checkViteHotFile(): void
+    {
+        // `public/hot` OVERRIDES both of the checks above, which is what makes it dangerous:
+        // Inertia\Ssr\HttpGateway::dispatch() tests Vite::isRunningHot() BEFORE it looks for
+        // the bundle, and when the file exists it posts the page to Vite's dev server instead
+        // of the SSR server. So the bundle can be present, the flag on and the systemd unit
+        // green, and the site is still invisible to crawlers — the SSR process is simply
+        // never contacted, and the failed connection is swallowed.
+        //
+        // It is gitignored, so `git pull` can neither deliver nor remove it. It reaches a
+        // server by being inside a zip or an FTP mirror of a dev machine, where Vite left it.
+        if (! is_file(public_path('hot'))) {
+            $this->result('pass', 'Vite hot file', 'absent — Inertia will use the SSR server');
+
+            return;
+        }
+
+        $target = trim((string) @file_get_contents(public_path('hot'))) ?: 'a dev server';
+
+        if (app()->environment('production')) {
+            $this->result('fail', 'Vite hot file', "public/hot exists — Inertia will post SSR to {$target} instead of the SSR server, and the site will not be server-rendered. Delete it: rm public/hot");
+            $this->failed = true;
+
+            return;
+        }
+
+        $this->result('warn', 'Vite hot file', "public/hot exists ({$target}) — normal while `npm run dev` runs, but SSR is bypassed. It must never reach production.");
     }
 
     private function checkSsrConfig(): void
