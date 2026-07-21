@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, router, usePage } from '@inertiajs/react'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
+  ArrowLeft,
   ChevronDown,
   Gauge,
   LayoutDashboard,
@@ -44,6 +45,20 @@ function isActivePath(path: string, href: string): boolean {
   return path === href || path.startsWith(`${href}/`)
 }
 
+/**
+ * THE SIGNED-IN WORKSPACE — /dashboard (the editorial office) and everything under /admin
+ * (editorial admin, site content, accounts). Not "is the user signed in": a signed-in author
+ * reading an article is ON THE SITE and gets the site's bar.
+ *
+ * Inside the workspace the bar stops advertising the workspace. The account dropdown's
+ * destination links are already the workspace's own left-hand navigation, so repeating them
+ * in a dropdown is noise — only Log out survives. And "Submit research" gives way to the one
+ * thing that has no other affordance in here: the way back out to the public site.
+ */
+function isWorkspacePath(path: string): boolean {
+  return isActivePath(path, '/dashboard') || isActivePath(path, '/admin')
+}
+
 export default function Navbar({ overHero }: { overHero: boolean }) {
   const [mega, setMega] = useState<MegaKey>(null)
   const [mobileOpen, setMobileOpen] = useState(false)
@@ -54,6 +69,7 @@ export default function Navbar({ overHero }: { overHero: boolean }) {
   const { auth, site } = useShared()
 
   const path = currentPath(url)
+  const inWorkspace = isWorkspacePath(path)
 
   /**
    * EVERYTHING IN THIS BAR COMES FROM THE CMS.
@@ -244,6 +260,7 @@ export default function Navbar({ overHero }: { overHero: boolean }) {
             <UserMenu
               name={auth.user.name}
               transparent={transparent}
+              inWorkspace={inWorkspace}
               canAccessAdmin={auth.user.canAccessAdmin}
               canManageSiteContent={auth.user.canManageSiteContent}
               canManageAccounts={auth.user.canManageAccounts}
@@ -266,14 +283,28 @@ export default function Navbar({ overHero }: { overHero: boolean }) {
             </a>
           )}
 
-          <Link
-            href="/submit"
-            className={`btn hidden px-4 text-white sm:inline-flex ${
-              transparent ? 'bg-brand-600 hover:bg-brand-500' : 'bg-brand-700 hover:bg-brand-800'
-            }`}
-          >
-            Submit research
-          </Link>
+          {/* The one call to action, and WHICH one depends on where you are. On the site it
+              is "Submit research" (teal). Inside the workspace that button would point you at
+              a page you can already reach from the workspace's own nav, so it becomes the
+              exit — navy, arrow leading left, back to the public site. */}
+          {inWorkspace ? (
+            <Link
+              href="/"
+              className="btn hidden bg-ink-900 px-4 text-white hover:bg-ink-800 sm:inline-flex"
+            >
+              <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+              Back to the site
+            </Link>
+          ) : (
+            <Link
+              href="/submit"
+              className={`btn hidden px-4 text-white sm:inline-flex ${
+                transparent ? 'bg-brand-600 hover:bg-brand-500' : 'bg-brand-700 hover:bg-brand-800'
+              }`}
+            >
+              Submit research
+            </Link>
+          )}
 
           <button
             type="button"
@@ -402,8 +433,9 @@ export default function Navbar({ overHero }: { overHero: boolean }) {
                 </div>
               )}
 
-              {/* Signed-in account links, role-gated — the same set as the desktop dropdown. */}
-              {auth.user && (
+              {/* Signed-in account links, role-gated — the same set as the desktop dropdown,
+                  and suppressed inside the workspace for the same reason. */}
+              {auth.user && !inWorkspace && (
                 <div className="mt-6 space-y-1 border-t border-ink-200 pt-6">
                   <p className="eyebrow">{auth.user.name}</p>
                   <ul className="space-y-1 pt-1">
@@ -442,9 +474,19 @@ export default function Navbar({ overHero }: { overHero: boolean }) {
               )}
 
               <div className="mt-auto flex flex-col gap-2 pt-8">
-                <Link href="/submit" className="btn-primary w-full">
-                  Submit research
-                </Link>
+                {inWorkspace ? (
+                  <Link
+                    href="/"
+                    className="btn w-full bg-ink-900 text-white hover:bg-ink-800"
+                  >
+                    <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+                    Back to the site
+                  </Link>
+                ) : (
+                  <Link href="/submit" className="btn-primary w-full">
+                    Submit research
+                  </Link>
+                )}
                 {auth.user ? (
                   <button type="button" onClick={logout} className="btn-secondary w-full">
                     <LogOut className="h-4 w-4" aria-hidden="true" />
@@ -508,10 +550,15 @@ function NavLink({
  * The signed-in user's menu — name + Log out collapsed into one dropdown, so the bar keeps
  * its space. Self-contained: its own click-outside and Escape handling, independent of the
  * mega menu's.
+ *
+ * `inWorkspace` empties it down to Log out: see isWorkspacePath. The role gates below still
+ * apply on the site side, and the server re-checks either way — a hidden link is a courtesy,
+ * never the control.
  */
 function UserMenu({
   name,
   transparent,
+  inWorkspace,
   canAccessAdmin,
   canManageSiteContent,
   canManageAccounts,
@@ -519,6 +566,7 @@ function UserMenu({
 }: {
   name: string
   transparent: boolean
+  inWorkspace: boolean
   canAccessAdmin: boolean
   canManageSiteContent: boolean
   canManageAccounts: boolean
@@ -572,21 +620,25 @@ function UserMenu({
             transition={{ duration: 0.15, ease: easeOut }}
             className="absolute right-0 z-dropdown mt-2 w-52 rounded-xl border border-ink-200 bg-white p-1.5 shadow-lift"
           >
-            <MenuLink href="/dashboard" icon={LayoutDashboard} label="Dashboard" onNavigate={() => setOpen(false)} />
+            {!inWorkspace && (
+              <>
+                <MenuLink href="/dashboard" icon={LayoutDashboard} label="Dashboard" onNavigate={() => setOpen(false)} />
 
-            {/* Role-gated. Only shown when the destination would actually admit them — the
-                server re-checks, so a hidden link is a courtesy, not the control. */}
-            {canAccessAdmin && (
-              <MenuLink href="/admin" icon={Gauge} label="Editorial admin" onNavigate={() => setOpen(false)} />
-            )}
-            {canManageSiteContent && (
-              <MenuLink href={contentHref.settings} icon={LayoutTemplate} label="Site content" onNavigate={() => setOpen(false)} />
-            )}
-            {canManageAccounts && (
-              <MenuLink href={peopleHref.accounts} icon={UserCog} label="Accounts" onNavigate={() => setOpen(false)} />
-            )}
+                {/* Role-gated. Only shown when the destination would actually admit them — the
+                    server re-checks, so a hidden link is a courtesy, not the control. */}
+                {canAccessAdmin && (
+                  <MenuLink href="/admin" icon={Gauge} label="Editorial admin" onNavigate={() => setOpen(false)} />
+                )}
+                {canManageSiteContent && (
+                  <MenuLink href={contentHref.settings} icon={LayoutTemplate} label="Site content" onNavigate={() => setOpen(false)} />
+                )}
+                {canManageAccounts && (
+                  <MenuLink href={peopleHref.accounts} icon={UserCog} label="Accounts" onNavigate={() => setOpen(false)} />
+                )}
 
-            <div className="my-1.5 border-t border-ink-100" />
+                <div className="my-1.5 border-t border-ink-100" />
+              </>
+            )}
 
             <button
               type="button"
