@@ -5,6 +5,7 @@ import { formatYear } from '@/lib/format'
 import { boolSetting, menuItems, setting, useShared } from '@/lib/props'
 import type { MenuItem } from '@/lib/props'
 import Logo from '@/components/Logo'
+import { LocaleSwitcher } from '@/components/LocaleSwitcher'
 
 /**
  * Social icons render ONLY when their setting holds a real URL.
@@ -109,20 +110,24 @@ export default function Footer() {
             © {[year, holder].filter(Boolean).join(' ')}
           </p>
 
-          {legal.length > 0 && (
-            <nav aria-label="Legal">
-              <ul className="flex flex-wrap gap-x-6 gap-y-2">
-                {legal.map((item) => (
-                  <li key={item.id}>
-                    <FooterLink
-                      item={item}
-                      className="cursor-pointer text-xs text-ink-300 transition-colors duration-200 hover:text-white"
-                    />
-                  </li>
-                ))}
-              </ul>
-            </nav>
-          )}
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
+            {legal.length > 0 && (
+              <nav aria-label="Legal">
+                <ul className="flex flex-wrap gap-x-6 gap-y-2">
+                  {legal.map((item) => (
+                    <li key={item.id}>
+                      <FooterLink
+                        item={item}
+                        className="cursor-pointer text-xs text-ink-300 transition-colors duration-200 hover:text-white"
+                      />
+                    </li>
+                  ))}
+                </ul>
+              </nav>
+            )}
+
+            <LocaleSwitcher />
+          </div>
         </div>
       </div>
     </footer>

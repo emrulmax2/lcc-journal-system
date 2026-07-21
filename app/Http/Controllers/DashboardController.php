@@ -11,6 +11,7 @@ use App\Models\Journal;
 use App\Models\ReviewAssignment;
 use App\Models\Submission;
 use App\Models\User;
+use App\Support\AdminChrome;
 use App\Support\EditorialMetrics;
 use App\Support\SubmissionPresenter;
 use Illuminate\Http\Request;
@@ -75,7 +76,30 @@ final class DashboardController extends Controller
 
             'reviewQueue' => $this->reviewQueue($user),
             'decisionTime' => $this->decisionTime($submissions),
-            'checklist' => $this->checklist($submissions, $editorJournalIds),
+            'checklist' => $this->checklist($focus = $this->focusSubmission($submissions, $editorJournalIds)),
+
+            // The manuscript the checklist describes, so the card can link straight to the
+            // editor cockpit where an outstanding item (a missing report, a pending decision)
+            // can actually be acted on. Null when this person has no manuscript with them.
+            'checklistFocus' => $focus === null ? null : [
+                'id' => $focus->id,
+                'reference' => $focus->reference,
+            ],
+
+            /*
+             * THE WAY OUT OF THIS ROOM.
+             *
+             * There are two dashboards and this is the one login used to send EVERYBODY to.
+             * It had no link to the other. An editor — or a site admin, for whom this page is
+             * legitimately empty — landed here, saw four zeroes and a New submission button,
+             * and had no route to issues, articles, publication or DOIs short of typing
+             * /admin. LandingPage now sends them to the right room in the first place; this
+             * is for the ones who arrive here anyway, from a bookmark or the nav.
+             *
+             * Same question Admin\DashboardController asks before it 403s, so the button is
+             * never a link to a refusal.
+             */
+            'canAccessAdmin' => AdminChrome::editorialJournals($user)->isNotEmpty(),
 
             'meta' => [
                 'title' => 'Editorial office — '.config('app.name'),
@@ -236,25 +260,32 @@ final class DashboardController extends Controller
     }
 
     /**
-     * The checklist for the ONE manuscript currently with this editor — the oldest active
-     * one in their journals. Empty for someone who is not an editor, which is exactly what
-     * the component's "no manuscript is currently with you" copy describes.
-     *
-     * Every item is derived from a row. A checklist that ticks itself off on a schedule is
-     * a to-do list; this one is a status report.
+     * The ONE manuscript currently with this editor — the oldest active one in their
+     * journals. Null for someone who is not an editor, or who has an empty queue.
      *
      * @param  Collection<int, Submission>  $submissions
      * @param  array<int, int>  $editorJournalIds
-     * @return array<int, array{label: string, done: bool}>
      */
-    private function checklist(Collection $submissions, array $editorJournalIds): array
+    private function focusSubmission(Collection $submissions, array $editorJournalIds): ?Submission
     {
-        $focus = $submissions
+        return $submissions
             ->filter(fn (Submission $s): bool => in_array($s->journal_id, $editorJournalIds, true)
                 && $s->status->isActive())
             ->sortBy('submitted_at')
             ->first();
+    }
 
+    /**
+     * The checklist for the focus manuscript. Empty when there is none — exactly what the
+     * component's "no manuscript is currently with you" copy describes.
+     *
+     * Every item is derived from a row. A checklist that ticks itself off on a schedule is
+     * a to-do list; this one is a status report.
+     *
+     * @return array<int, array{label: string, done: bool}>
+     */
+    private function checklist(?Submission $focus): array
+    {
         if ($focus === null) {
             return [];
         }

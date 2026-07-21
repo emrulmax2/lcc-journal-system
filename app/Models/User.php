@@ -30,6 +30,7 @@ class User extends Authenticatable
         'family_name',
         'affiliation',
         'orcid',
+        'preferred_locale',
         'avatar_path',
         'is_active',
         'is_site_admin',

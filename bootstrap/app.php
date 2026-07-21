@@ -1,6 +1,8 @@
 <?php
 
+use App\Http\Middleware\EnsureAccountIsActive;
 use App\Http\Middleware\HandleInertiaRequests;
+use App\Http\Middleware\SetLocale;
 use App\Http\Middleware\TrackArticleView;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -31,6 +33,14 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->web(append: [
+            // BEFORE HandleInertiaRequests, so a deactivated account is turned away rather
+            // than having its identity shared to every page as `auth.user`.
+            EnsureAccountIsActive::class,
+
+            // BEFORE HandleInertiaRequests too, so the locale is set before the shared
+            // `locale`/`translations` props are built for this request.
+            SetLocale::class,
+
             HandleInertiaRequests::class,
             AddLinkHeadersForPreloadedAssets::class,
 

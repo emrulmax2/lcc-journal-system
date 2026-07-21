@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace App\Providers;
 
 use App\Models\User;
+use App\Support\GlobalRoles;
 use Illuminate\Http\Resources\Json\JsonResource;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\ServiceProvider;
@@ -58,25 +58,40 @@ class AppServiceProvider extends ServiceProvider
          *     person who runs the publishing operation, and the operation is what the
          *     footer and the policy pages describe.
          *
-         * The pivot is queried DIRECTLY rather than through $user->roles(), because with
-         * teams enabled that relation is scoped to the CURRENT team id — which in a request
-         * that names no journal is NULL, so it would answer "no roles" for everybody.
+         * The "on ANY journal" question cannot go through $user->roles() — see GlobalRoles
+         * for why the pivot is read directly.
          */
-        Gate::define('manage-site-content', function (User $user): bool {
-            if ($user->is_site_admin) {
-                return true;
-            }
+        Gate::define('manage-site-content', fn (User $user): bool => $user->is_site_admin
+            || GlobalRoles::holdsAnywhere($user, 'publisher-admin'));
 
-            $tables = config('permission.table_names');
-            $columns = config('permission.column_names');
+        /**
+         * ACCOUNTS ARE SITE-WIDE. A user is not "of" a journal — they exist, and then they
+         * hold roles on journals. So creating, editing and deactivating one is a Gate with
+         * no model, exactly like manage-site-content, and for the same reason.
+         *
+         * A publisher-admin is included: they run the publishing operation, and onboarding
+         * an editor is that job. What they CANNOT do is the next two gates.
+         */
+        Gate::define('manage-users', fn (User $user): bool => $user->is_site_admin
+            || GlobalRoles::holdsAnywhere($user, 'publisher-admin'));
 
-            return DB::table($tables['model_has_roles'])
-                ->join($tables['roles'], "{$tables['roles']}.id", '=', "{$tables['model_has_roles']}.role_id")
-                ->where("{$tables['model_has_roles']}.{$columns['model_morph_key']}", $user->getKey())
-                ->where("{$tables['model_has_roles']}.model_type", $user->getMorphClass())
-                ->where("{$tables['roles']}.name", 'publisher-admin')
-                ->exists();
-        });
+        /**
+         * SITE ADMIN ONLY, AND THE REASON IS PRIVILEGE ESCALATION.
+         *
+         * is_site_admin is read by Gate::before — the one global bypass in the system. If a
+         * publisher-admin could set it, `manage-users` would silently be the highest
+         * privilege in the app: grant yourself the column, and every policy answers true
+         * forever. The two abilities MUST NOT collapse into one.
+         */
+        Gate::define('grant-site-admin', fn (User $user): bool => $user->is_site_admin);
+
+        /**
+         * SITE ADMIN ONLY. Editing a role's permissions rewrites what that role means on
+         * EVERY journal at once — role definitions are team-agnostic (journal_id NULL) and
+         * only assignments are scoped. A journal-editor of one journal must not be able to
+         * redefine `journal-editor` for all of them.
+         */
+        Gate::define('manage-roles', fn (User $user): bool => $user->is_site_admin);
 
         // citation_pdf_url and citation_abstract_html_url must be absolute and must match
         // the canonical scheme. Behind cPanel's proxy the app can otherwise generate

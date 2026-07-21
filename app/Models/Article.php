@@ -147,6 +147,27 @@ class Article extends Model
     }
 
     /**
+     * The crawlable full-text HTML page. citation_fulltext_html_url points here.
+     *
+     * Server-rendered by Blade (not React), so Google Scholar — which runs no JavaScript —
+     * can read the full text, not only the abstract and the PDF. Survives a dead SSR process
+     * for the same reason the citation meta tags do.
+     */
+    public function htmlUrl(): string
+    {
+        return route('articles.html', $this->slug);
+    }
+
+    /**
+     * Whether there is full text to render as HTML. Derived from the body — every article
+     * with a body gets an HTML full-text page for free, no separate galley upload required.
+     */
+    public function hasHtmlFullText(): bool
+    {
+        return filled($this->body);
+    }
+
+    /**
      * Advertising a citation_pdf_url that 404s is worse than advertising none: Scholar
      * fetches it, fails, and quietly downgrades the whole journal.
      */

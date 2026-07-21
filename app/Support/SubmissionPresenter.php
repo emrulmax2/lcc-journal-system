@@ -4,8 +4,11 @@ declare(strict_types=1);
 
 namespace App\Support;
 
+use App\Models\EditorialDecision;
 use App\Models\ReviewAssignment;
+use App\Models\ReviewRound;
 use App\Models\Submission;
+use App\Models\SubmissionAuthor;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
@@ -62,6 +65,10 @@ final class SubmissionPresenter
             // abandoned draft does not burn a number. The row still needs a stable key.
             'id' => $submission->reference ?? 'DRAFT-'.$submission->id,
 
+            // The numeric id, for author actions that POST (revision upload). NOT sensitive —
+            // it is the author's own manuscript.
+            'submissionId' => $submission->id,
+
             'title' => $submission->title,
             'journal' => $submission->journal?->title ?? '',
             'status' => $submission->status->label(),
@@ -71,6 +78,125 @@ final class SubmissionPresenter
             'correspondingAuthor' => self::correspondingAuthor($submission),
             'type' => $submission->section?->name,
             'reviewers' => self::reviewers($submission, $revealReviewers),
+        ];
+    }
+
+    /**
+     * The EDITOR's view of a manuscript — every round, every report, the confidential
+     * editor-only comments, and reviewer identities WHEN the viewer may see them.
+     *
+     * This is the counterpart to forDashboard, and the differences are deliberate:
+     *
+     *   - ALL rounds, not just the current one. An editor deciding a round-two manuscript
+     *     needs round one's reports in front of them; the detail screen has the room the
+     *     Dashboard's panel does not.
+     *
+     *   - `commentsToEditor` IS emitted here. It is confidential FROM THE AUTHOR, not from
+     *     the editor — and this method only ever feeds a screen already gated on
+     *     `viewAllSubmissions`. It must still never reach forDashboard, which serves authors.
+     *
+     *   - Identities are gated on $revealReviewers exactly as everywhere else. An editor who
+     *     may view submissions but not assign reviewers (a possible, if unusual, permission
+     *     split) sees "Reviewer 1", not a name.
+     *
+     * @return array<string, mixed>
+     */
+    public static function forEditor(Submission $submission, bool $revealReviewers): array
+    {
+        return [
+            'id' => $submission->id,
+            'reference' => $submission->reference,
+            'title' => $submission->title,
+            'abstract' => $submission->abstract,
+            'status' => $submission->status->value,
+            'statusLabel' => $submission->status->label(),
+            'stage' => $submission->stage->value,
+            'stageLabel' => $submission->stage->label(),
+            'keywords' => $submission->keywords ?? [],
+            'section' => $submission->section?->name,
+            'submittedAt' => $submission->submitted_at?->toIso8601String(),
+
+            'authors' => $submission->authors->map(fn (SubmissionAuthor $author): array => [
+                'name' => $author->name,
+                'email' => $author->email,
+                'affiliation' => $author->affiliation,
+                'orcid' => $author->orcid,
+                'isCorresponding' => (bool) $author->is_corresponding,
+            ])->values()->all(),
+
+            'rounds' => $submission->reviewRounds
+                ->map(fn (ReviewRound $round): array => self::editorRound($round, $revealReviewers))
+                ->values()
+                ->all(),
+
+            'decisions' => $submission->decisions->map(fn (EditorialDecision $decision): array => [
+                'decision' => $decision->decision->value,
+                'decisionLabel' => $decision->decision->label(),
+                'body' => $decision->body,
+                'editor' => $decision->editor?->fullName(),
+                'roundNumber' => $decision->round?->round_number,
+                'decidedAt' => $decision->decided_at?->toIso8601String(),
+            ])->values()->all(),
+        ];
+    }
+
+    /**
+     * One review round for the editor screen — every assignment, its report, and (gated)
+     * the reviewer's identity. Assignments are ordered by id, the same order the anonymised
+     * "Reviewer 1/2/3" labels use, so a withheld label is stable across visits.
+     *
+     * @return array<string, mixed>
+     */
+    private static function editorRound(ReviewRound $round, bool $reveal): array
+    {
+        return [
+            'id' => $round->id,
+            'roundNumber' => $round->round_number,
+            'openedAt' => $round->opened_at?->toIso8601String(),
+            'closedAt' => $round->closed_at?->toIso8601String(),
+            'isOpen' => $round->isOpen(),
+            'allReportsIn' => $round->allReportsIn(),
+            'assignments' => $round->assignments
+                ->values()
+                ->map(fn (ReviewAssignment $a, int $i): array => self::editorAssignment($a, $i + 1, $reveal))
+                ->all(),
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    private static function editorAssignment(ReviewAssignment $assignment, int $position, bool $reveal): array
+    {
+        $identity = $reveal
+            ? [
+                'reviewerName' => $assignment->reviewer->fullName(),
+                'reviewerAffiliation' => (string) ($assignment->reviewer->affiliation ?? ''),
+            ]
+            : [
+                'reviewerName' => 'Reviewer '.$position,
+                'reviewerAffiliation' => self::WITHHELD,
+            ];
+
+        $review = $assignment->review;
+
+        return $identity + [
+            'id' => $assignment->id,
+            'status' => $assignment->status->value,
+            'statusLabel' => $assignment->status->label(),
+            'invitedAt' => $assignment->invited_at?->toIso8601String(),
+            'dueAt' => $assignment->due_at->toIso8601String(),
+            'respondedAt' => $assignment->responded_at?->toIso8601String(),
+            'completedAt' => $assignment->completed_at?->toIso8601String(),
+
+            // The report, if it has landed. `commentsToEditor` is read directly off the model
+            // — $hidden guards ->toArray()/->toJson(), not property access, and this array is
+            // built for the editor screen on purpose.
+            'report' => $review === null ? null : [
+                'recommendation' => $review->recommendation->value,
+                'recommendationLabel' => $review->recommendation->label(),
+                'commentsToAuthor' => $review->comments_to_author,
+                'commentsToEditor' => $review->comments_to_editor,
+                'submittedAt' => $review->submitted_at?->toIso8601String(),
+            ],
         ];
     }
 

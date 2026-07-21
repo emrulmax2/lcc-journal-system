@@ -47,11 +47,14 @@ class ReviewRound extends Model
      * Every reviewer who accepted has now reported — the point at which the manuscript is
      * genuinely waiting on the EDITOR rather than on a reviewer. A round with no live
      * invitations at all is not "complete"; it has nobody in it.
+     *
+     * Declined AND withdrawn invitations are not live: a reviewer who was never going to
+     * report must not hold a round open forever.
      */
     public function allReportsIn(): bool
     {
         $live = $this->assignments()
-            ->where('status', '!=', ReviewerStatus::Declined)
+            ->whereNotIn('status', [ReviewerStatus::Declined, ReviewerStatus::Withdrawn])
             ->count();
 
         if ($live === 0) {

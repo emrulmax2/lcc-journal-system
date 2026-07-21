@@ -96,6 +96,12 @@ class Submission extends Model
         return $this->hasMany(EditorialDecision::class)->orderBy('decided_at');
     }
 
+    /** Internal editorial discussion threads. Never author-facing. */
+    public function discussions(): HasMany
+    {
+        return $this->hasMany(SubmissionDiscussion::class)->latest();
+    }
+
     // --- The audit trail ----------------------------------------------------
 
     /**

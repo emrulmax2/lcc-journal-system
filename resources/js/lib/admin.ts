@@ -43,6 +43,16 @@ export type AdminAbilities = {
   publish: boolean
 
   /**
+   * THE EDITORIAL COCKPIT. Decide what renders on the submission screens — the Submissions
+   * tab, the reviewer-assignment form, the decision form. `production` has none of these;
+   * a section-editor has all three but NOT `publish`. Never what to ALLOW — every mutation
+   * is authorised again on the server.
+   */
+  viewAllSubmissions: boolean
+  assignReviewers: boolean
+  recordDecision: boolean
+
+  /**
    * THE ONE ABILITY HERE THAT IS NOT ABOUT A JOURNAL.
    *
    * Site content — the footer, the privacy policy, the navigation, the homepage — belongs to
@@ -52,6 +62,19 @@ export type AdminAbilities = {
    * renders, and that tab is on every admin screen.
    */
   manageSiteContent: boolean
+
+  /**
+   * ALSO NOT ABOUT A JOURNAL — and deliberately not the same field as `manageUsers`.
+   *
+   * manageUsers    : may you set roles ON THIS JOURNAL. Per-journal, a policy question.
+   * manageAccounts : may you create a person at all. A person is not of a journal.
+   *
+   * Two tabs, because two jobs: "who edits JCD&MS" and "who has an account".
+   */
+  manageAccounts: boolean
+
+  /** Site admin only — a role definition is team-agnostic, so editing it hits every journal. */
+  manageRoles: boolean
 }
 
 export type AdminChrome = {
@@ -82,6 +105,16 @@ export function issuesHref(journalId: number): string {
   return `/admin/journals/${journalId}/issues`
 }
 
+/** The editorial queue — journal-scoped, like issues and deposits. */
+export function submissionsHref(journalId: number): string {
+  return `/admin/journals/${journalId}/submissions`
+}
+
+/** One manuscript's detail. Bound by submission id — globally unique, no journal needed. */
+export function submissionHref(submissionId: number): string {
+  return `/admin/submissions/${submissionId}`
+}
+
 export function depositsHref(journalId: number): string {
   return `/admin/journals/${journalId}/deposits`
 }
@@ -90,9 +123,21 @@ export function settingsHref(journalId: number): string {
   return `/admin/journals/${journalId}/settings`
 }
 
+/** Roles ON ONE JOURNAL. Not the same screen as `peopleHref` — see AdminAbilities. */
 export function usersHref(journalId: number): string {
   return `/admin/journals/${journalId}/users`
 }
+
+/**
+ * SITE-WIDE accounts and role definitions. No journal in the URL, because a person is not
+ * of a journal and a role definition is not a journal's either.
+ */
+export const peopleHref = {
+  accounts: '/admin/users',
+  newAccount: '/admin/users/create',
+  editAccount: (id: number) => `/admin/users/${id}/edit`,
+  roles: '/admin/roles',
+} as const
 
 export function newArticleHref(journalId: number): string {
   return `/admin/journals/${journalId}/articles/create`

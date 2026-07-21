@@ -30,6 +30,14 @@ class UserFactory extends Factory
             'email_verified_at' => now(),
             'password' => static::$password ??= Hash::make('password'),
             'remember_token' => Str::random(10),
+
+            // Set explicitly, not left to the column default. The default fills the ROW on
+            // insert, but the model instance the factory returns never learns it — so
+            // `$user->is_active` on a freshly-made user reads null, casts to false, and any
+            // code that checks it (EnsureAccountIsActive, the login guard) treats a brand
+            // new account as deactivated. A factory user must be a usable account.
+            'is_active' => true,
+            'is_site_admin' => false,
         ];
     }
 

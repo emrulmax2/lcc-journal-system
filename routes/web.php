@@ -2,7 +2,9 @@
 
 declare(strict_types=1);
 
+use App\Http\Controllers\Admin\AccountController;
 use App\Http\Controllers\Admin\ArticleController as AdminArticleController;
+use App\Http\Controllers\Admin\Content\FieldController;
 use App\Http\Controllers\Admin\Content\HomeSectionController;
 use App\Http\Controllers\Admin\Content\MediaController;
 use App\Http\Controllers\Admin\Content\MenuController;
@@ -16,12 +18,16 @@ use App\Http\Controllers\Admin\DashboardController as AdminDashboardController;
 use App\Http\Controllers\Admin\DepositController;
 use App\Http\Controllers\Admin\IssueController;
 use App\Http\Controllers\Admin\PublishController;
+use App\Http\Controllers\Admin\RoleController;
 use App\Http\Controllers\Admin\SettingsController;
+use App\Http\Controllers\Admin\SubmissionController as AdminSubmissionController;
+use App\Http\Controllers\Admin\SubmissionDiscussionController;
 use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\Admin\VolumeController;
 use App\Http\Controllers\Auth\LoginController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DecisionController;
+use App\Http\Controllers\LocaleController;
 use App\Http\Controllers\Public\ArticleController;
 use App\Http\Controllers\Public\CitationController;
 use App\Http\Controllers\Public\HomeController;
@@ -68,6 +74,11 @@ Route::get('/articles', [ArticleController::class, 'index'])->name('articles.ind
 // ".pdf" would otherwise be read as part of the slug and served as HTML.
 Route::get('/articles/{article}.pdf', [ArticleController::class, 'pdf'])->name('articles.pdf');
 
+// The crawlable HTML full text. Declared BEFORE {article} for the same reason as .pdf —
+// ".html" would otherwise be read as part of the slug. Server-rendered by Blade so Scholar
+// can read the full body with no JavaScript. citation_fulltext_html_url points here.
+Route::get('/articles/{article}.html', [ArticleController::class, 'html'])->name('articles.html');
+
 Route::get('/articles/{article}/cite/{format}', CitationController::class)
     ->whereIn('format', ['harvard', 'bibtex', 'ris'])
     ->name('articles.cite');
@@ -92,6 +103,10 @@ Route::get('/newsletter/confirm/{token}', [NewsletterController::class, 'confirm
 Route::get('/newsletter/unsubscribe/{token}', [NewsletterController::class, 'unsubscribe'])->name('newsletter.unsubscribe');
 
 Route::get('/sitemap.xml', SitemapController::class)->name('sitemap');
+
+// Language switch. Stores the choice in the session (and on the account, if signed in) and
+// returns to the current page. GET so the switcher can be a plain link.
+Route::get('/locale/{locale}', [LocaleController::class, 'switch'])->name('locale.switch');
 
 /*
 |--------------------------------------------------------------------------
@@ -154,7 +169,20 @@ Route::middleware('auth')->group(function () {
     Route::post('/reviews/{assignment}/report', [ReviewController::class, 'report'])->name('reviews.report');
 
     Route::post('/submissions/{submission}/reviewers', [ReviewController::class, 'invite'])->name('submissions.invite');
+    Route::post('/reviews/{assignment}/withdraw', [ReviewController::class, 'withdraw'])->name('reviews.withdraw');
     Route::post('/submissions/{submission}/decision', [DecisionController::class, 'store'])->name('submissions.decision');
+
+    // The author's revised manuscript, in response to a revise-and-resubmit decision. Closes
+    // the revision loop. Policy-gated to the owner while status is RevisionsRequested.
+    Route::post('/submissions/{submission}/revision', [SubmissionController::class, 'revision'])
+        ->middleware('throttle:20,60')
+        ->name('submissions.revision');
+
+    // Internal editorial discussion threads on a manuscript. Not crawlable, not public, not
+    // author-facing — the controller gates every write on viewAllSubmissions. Alongside the
+    // other editorial-office mutations, not under /admin, which is where the read screens live.
+    Route::post('/submissions/{submission}/discussions', [SubmissionDiscussionController::class, 'store'])->name('discussions.store');
+    Route::post('/discussions/{discussion}/messages', [SubmissionDiscussionController::class, 'reply'])->name('discussions.reply');
 });
 
 /*
@@ -181,6 +209,24 @@ Route::middleware('auth')->group(function () {
 
 Route::middleware('auth')->prefix('admin')->name('admin.')->group(function () {
     Route::get('/', AdminDashboardController::class)->name('dashboard');
+
+    /*
+    |--------------------------------------------------------------------------
+    | Editorial cockpit — the submission queue and one manuscript's detail
+    |--------------------------------------------------------------------------
+    | READ-ONLY screens. Inviting a reviewer and recording a decision do NOT
+    | live here — they POST to the existing audited endpoints (submissions.invite,
+    | submissions.decision, defined above under the editorial-office group). This
+    | controller renders what those act on.
+    |
+    | The queue is journal-scoped (/journals/{journal}/...), like issues and
+    | deposits. The detail and download bind a submission directly — a submission
+    | id is globally unique, so there is no journal to disambiguate, and the
+    | policy is asked against submission->journal either way.
+    */
+    Route::get('/journals/{journal}/submissions', [AdminSubmissionController::class, 'index'])->name('submissions.index');
+    Route::get('/submissions/{submission}', [AdminSubmissionController::class, 'show'])->name('submissions.show');
+    Route::get('/submissions/{submission}/files/{file}', [AdminSubmissionController::class, 'download'])->name('submissions.files.download');
 
     // --- Volumes & issues (issue-based journals only; a 404 for continuous ones) ---
     Route::get('/journals/{journal}/issues', [IssueController::class, 'index'])->name('issues.index');
@@ -220,6 +266,44 @@ Route::middleware('auth')->prefix('admin')->name('admin.')->group(function () {
 
     Route::get('/journals/{journal}/users', [UserController::class, 'index'])->name('users.index');
     Route::put('/journals/{journal}/users/{user}', [UserController::class, 'update'])->name('users.update');
+
+    /*
+    |--------------------------------------------------------------------------
+    | Accounts and roles — SITE-WIDE, and that is the whole distinction
+    |--------------------------------------------------------------------------
+    | admin.users.*    (above) — "who does what ON THIS JOURNAL". Team-scoped.
+    | admin.accounts.* (here)  — the PERSON: name, email, password, active,
+    |                            site admin, and their roles across every journal.
+    |
+    | A user is not "of" a journal. They exist, and then they hold roles on
+    | journals — so there is no journal to scope this to, and `can:manage-users`
+    | is a gate with no model, exactly like `manage-site-content` below.
+    |
+    | Unlike the journal routes above, these DO carry middleware: the guard is a
+    | site-wide gate, not a per-object policy, so there is no model for a
+    | controller-level authorize() to ask about. Each action re-authorizes
+    | anyway — the middleware is the fence, not the lock.
+    |
+    | admin.roles.* is site-admin only (`manage-roles`): a role definition is
+    | team-agnostic, so editing it changes every journal at once.
+    */
+    Route::middleware('can:manage-users')->group(function () {
+        Route::get('/users', [AccountController::class, 'index'])->name('accounts.index');
+        Route::get('/users/create', [AccountController::class, 'create'])->name('accounts.create');
+        Route::post('/users', [AccountController::class, 'store'])->name('accounts.store');
+
+        // {account} binds User by id. Named `account` rather than `user` so it cannot be
+        // confused with the {user} of the per-journal routes above, which means something
+        // different: a member of one journal, not an account.
+        Route::get('/users/{account}/edit', [AccountController::class, 'edit'])->name('accounts.edit');
+        Route::put('/users/{account}', [AccountController::class, 'update'])->name('accounts.update');
+        Route::delete('/users/{account}', [AccountController::class, 'destroy'])->name('accounts.destroy');
+    });
+
+    Route::middleware('can:manage-roles')->group(function () {
+        Route::get('/roles', [RoleController::class, 'index'])->name('roles.index');
+        Route::put('/roles/{role}', [RoleController::class, 'update'])->name('roles.update');
+    });
 
     /*
     |--------------------------------------------------------------------------
@@ -281,6 +365,18 @@ Route::middleware('auth')->prefix('admin')->name('admin.')->group(function () {
             Route::get('/topics/{topic:id}/edit', [TopicController::class, 'edit'])->name('topics.edit');
             Route::put('/topics/{topic:id}', [TopicController::class, 'update'])->name('topics.update');
             Route::delete('/topics/{topic:id}', [TopicController::class, 'destroy'])->name('topics.destroy');
+
+            /*
+             * Subject fields — the filter chips on /journals.
+             *
+             * Site content, not a journal's: "Economics & Finance" is not JCD&MS's, JCD&MS
+             * is IN it. So it sits behind manage-site-content with the rest of the CMS,
+             * and there is no per-journal variant of this screen.
+             */
+            Route::get('/fields', [FieldController::class, 'index'])->name('fields.index');
+            Route::post('/fields', [FieldController::class, 'store'])->name('fields.store');
+            Route::put('/fields/{field}', [FieldController::class, 'update'])->name('fields.update');
+            Route::delete('/fields/{field}', [FieldController::class, 'destroy'])->name('fields.destroy');
 
             Route::get('/media', [MediaController::class, 'index'])->name('media.index');
             Route::post('/media', [MediaController::class, 'store'])->name('media.store');

@@ -161,6 +161,8 @@ export const contentHref = {
   topics: '/admin/content/topics',
   newTopic: '/admin/content/topics/create',
   editTopic: (id: number) => `/admin/content/topics/${id}/edit`,
+  /** Subject fields — the filter chips on /journals. Site content: a field spans journals. */
+  fields: '/admin/content/fields',
   media: '/admin/content/media',
   newsletter: '/admin/content/newsletter',
   newsletterExport: '/admin/content/newsletter/export',

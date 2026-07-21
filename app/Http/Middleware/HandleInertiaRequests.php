@@ -5,7 +5,10 @@ declare(strict_types=1);
 namespace App\Http\Middleware;
 
 use App\Services\Content\SiteContent;
+use App\Support\AdminChrome;
+use App\Support\Locales;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Lang;
 use Inertia\Middleware;
 
 class HandleInertiaRequests extends Middleware
@@ -26,6 +29,13 @@ class HandleInertiaRequests extends Middleware
                     'id' => $request->user()->id,
                     'name' => $request->user()->fullName(),
                     'email' => $request->user()->email,
+
+                    // Role-gated nav. Asked of the policies, the same questions /admin and the
+                    // gates ask — so a link only shows when the destination would let them in,
+                    // and the server re-checks regardless.
+                    'canAccessAdmin' => AdminChrome::editorialJournals($request->user())->isNotEmpty(),
+                    'canManageSiteContent' => $request->user()->can('manage-site-content'),
+                    'canManageAccounts' => $request->user()->can('manage-users'),
                 ] : null,
             ],
 
@@ -67,6 +77,16 @@ class HandleInertiaRequests extends Middleware
              * sent from the server, is the only way both renders agree.
              */
             'now' => now()->toIso8601String(),
+
+            /**
+             * i18n. The locale in force (set by SetLocale, which runs before this), the menu
+             * of languages the switcher offers, and the FULL message bag for this locale so
+             * the frontend's t('group.key') resolves without a round-trip. Serialised into the
+             * SSR HTML, so translated chrome is server-rendered like everything else.
+             */
+            'locale' => app()->getLocale(),
+            'locales' => Locales::forMenu(),
+            'translations' => fn () => Lang::get('messages'),
 
             /**
              * THE CMS LAYER — brand, navigation, footer. Shared into every page.

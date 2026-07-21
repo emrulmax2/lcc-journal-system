@@ -41,7 +41,12 @@ return [
             'table' => env('DB_QUEUE_TABLE', 'jobs'),
             'queue' => env('DB_QUEUE', 'default'),
             'retry_after' => (int) env('DB_QUEUE_RETRY_AFTER', 90),
-            'after_commit' => false,
+
+            // after_commit: a job dispatched inside a DB transaction runs only once that
+            // transaction commits. The editorial mail is dispatched from controllers AFTER the
+            // audited Action returns (already post-commit), and this is the belt-and-braces:
+            // nothing is ever emailed about a decision or an invitation that then rolled back.
+            'after_commit' => true,
         ],
 
         'beanstalkd' => [

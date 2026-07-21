@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Policies;
 
+use App\Enums\SubmissionStatus;
 use App\Models\Submission;
 use App\Models\User;
 
@@ -26,6 +27,18 @@ class SubmissionPolicy
     public function update(User $user, Submission $submission): bool
     {
         return $this->owns($user, $submission) && $submission->isDraft();
+    }
+
+    /**
+     * Upload a revised manuscript. Only the author who owns it, and ONLY when the editor has
+     * asked for revisions — a revision is a response to a decision, not something an author
+     * pushes at any time. A guest submission (no account) has no owner and cannot revise here;
+     * that needs a tokened link, which this does not grant.
+     */
+    public function uploadRevision(User $user, Submission $submission): bool
+    {
+        return $this->owns($user, $submission)
+            && $submission->status === SubmissionStatus::RevisionsRequested;
     }
 
     public function assignReviewers(User $user, Submission $submission): bool

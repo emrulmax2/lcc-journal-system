@@ -12,10 +12,16 @@ import Footer from '@/components/Footer'
  * useLocation().pathname. Inertia has no <Routes> to key, so the key moves here, onto
  * the page wrapper, and its source moves from react-router to usePage().url.
  *
- * `mode="wait"` is deliberately NOT used. Under react-router the swap was instant, so a
- * 200ms mandatory exit cost nothing. Inertia already blocks on a server round-trip, so
- * mode="wait" would stack the exit animation ON TOP of the network wait and make every
- * navigation feel ~200ms slower than it actually is.
+ * `mode="wait"` IS used, and it is load-bearing. AnimatePresence renders the exiting and
+ * entering pages as SIBLINGS, so without it both are in the document at once during a
+ * transition — and because a page is full-height, that reads as the new page STACKED BELOW
+ * the old one (reported: clicking "New submission" showed the submit page under the
+ * dashboard). `mode="wait"` fully removes the outgoing page before mounting the incoming
+ * one, so only one is ever on screen. The `exit` variant is short (200ms), so the cost over
+ * the network round-trip Inertia already blocks on is small — and correctness beats it.
+ *
+ * The `exit="exit"` prop below is what makes the removal ACTUALLY animate and complete;
+ * without it AnimatePresence has no exit target and the swap misbehaves.
  *
  * THE `mounted` GATE IS NOT OPTIONAL. pageTransition.hidden is { opacity: 0 }, and
  * framer-motion serialises the `initial` variant straight into the rendered style
@@ -50,13 +56,14 @@ export default function Layout({ children }: { children: ReactNode }) {
 
       <Navbar overHero={isHome} />
 
-      <AnimatePresence initial={false}>
+      <AnimatePresence initial={false} mode="wait">
         <motion.main
           key={url}
           id="main"
           variants={pageTransition}
           initial={mounted ? 'hidden' : false}
           animate="visible"
+          exit="exit"
           className={isHome ? '' : 'pt-16 lg:pt-[72px]'}
         >
           {children}

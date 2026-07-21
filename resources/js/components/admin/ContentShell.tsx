@@ -10,6 +10,7 @@ import {
   Settings2,
   FileText,
   Compass,
+  Tags,
   type LucideIcon,
 } from 'lucide-react'
 import { Flash } from '@/components/admin/Shell'
@@ -42,6 +43,7 @@ const TABS: Tab[] = [
   { label: 'Homepage', href: contentHref.home, icon: LayoutTemplate },
   { label: 'News', href: contentHref.news, icon: Newspaper },
   { label: 'Research Topics', href: contentHref.topics, icon: Compass },
+  { label: 'Subject fields', href: contentHref.fields, icon: Tags },
   { label: 'Media', href: contentHref.media, icon: Image },
   { label: 'Newsletter', href: contentHref.newsletter, icon: Mail },
 ]

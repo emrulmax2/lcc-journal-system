@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Http\Controllers\OaiPmhController;
+use App\Http\Controllers\Public\FeedController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -21,3 +22,8 @@ use Illuminate\Support\Facades\Route;
 */
 
 Route::get('/oai', OaiPmhController::class)->name('oai');
+
+// Atom syndication — the whole site, and each journal. How readers and aggregators follow new
+// work without polling. Declared here, above the /{page} catch-all, for the same reason /oai is.
+Route::get('/feed', [FeedController::class, 'site'])->name('feed');
+Route::get('/journals/{journal:slug}/feed', [FeedController::class, 'journal'])->name('journals.feed');

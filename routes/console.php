@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Console\Commands\CheckDoisCommand;
 use App\Console\Commands\CheckSsrCommand;
 use App\Console\Commands\ComputeJournalMetricsCommand;
+use App\Console\Commands\SendReviewRemindersCommand;
 use Illuminate\Support\Facades\Schedule;
 
 /*
@@ -30,3 +31,8 @@ Schedule::command(CheckDoisCommand::class)
 // read as fact when choosing where to submit. impact_factor and cite_score are NOT
 // touched: they are issued by JCR and Scopus, and computing our own would be a fabrication.
 Schedule::command(ComputeJournalMetricsCommand::class)->dailyAt('02:00');
+
+// Chase reviewers whose report is due soon or overdue. A late review is the biggest source of
+// slow decisions, and only the editor could see it before this — the reviewer got no nudge.
+// Once a day is enough; the command itself spaces reminders to the same reviewer.
+Schedule::command(SendReviewRemindersCommand::class)->dailyAt('07:00');

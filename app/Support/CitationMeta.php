@@ -87,6 +87,11 @@ final class CitationMeta
         $add('citation_abstract_html_url', $article->landingUrl());
         $add('citation_pdf_url', $article->hasPdf() ? $article->pdfUrl() : null);
 
+        // The crawlable HTML full text. Scholar indexes the full body from here, not just the
+        // abstract. Only advertised when there is a body to render — an empty full-text URL
+        // that 404s would downgrade the journal exactly as a bad citation_pdf_url does.
+        $add('citation_fulltext_html_url', $article->hasHtmlFullText() ? $article->htmlUrl() : null);
+
         $add('citation_language', 'en');
         $add('citation_keywords', self::keywords($article));
         $add('citation_abstract', self::singleLine($article->abstract));

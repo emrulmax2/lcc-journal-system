@@ -4,15 +4,21 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers;
 
+use App\Actions\AuthorRevisionAction;
 use App\Actions\SubmitManuscriptAction;
 use App\Enums\SubmissionStatus;
+use App\Mail\SubmissionReceivedMail;
 use App\Models\Journal;
 use App\Models\JournalSection;
 use App\Models\Submission;
 use App\Models\User;
+use App\Notifications\RevisionSubmittedNotification;
 use App\Support\EditorialMetrics;
+use App\Support\EditorialRecipients;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Notification;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -169,6 +175,14 @@ final class SubmissionController extends Controller
 
         $submission = $submit->execute($request->user(), $journal, $data, $request->file('file'));
 
+        // The receipt. Dispatched AFTER the action returns — i.e. post-commit — and queued,
+        // so a submission is never acknowledged by email unless it actually saved. Guest-safe:
+        // the address is the corresponding SubmissionAuthor's, which exists with or without an
+        // account.
+        if ($email = EditorialRecipients::correspondingAuthorEmail($submission)) {
+            Mail::to($email)->send(new SubmissionReceivedMail($submission));
+        }
+
         // The Success screen prints ONLY what the server issued. A manuscript ID that
         // exists in no database is worse than none at all — the author quotes it, and the
         // editorial office has never heard of it.
@@ -181,6 +195,34 @@ final class SubmissionController extends Controller
                 'medianDaysToDecision' => EditorialMetrics::medianDaysToFirstDecision($journal)
                     ?? $journal->metric?->median_days_to_decision,
             ]);
+    }
+
+    /**
+     * The author uploads a revised manuscript in response to a revise-and-resubmit decision.
+     * Closes the loop the pipeline could open but not finish. Authorised by SubmissionPolicy:
+     * only the owner, only while the status is RevisionsRequested.
+     */
+    public function revision(Request $request, Submission $submission, AuthorRevisionAction $revise): RedirectResponse
+    {
+        $this->authorize('uploadRevision', $submission);
+
+        $data = $request->validate([
+            'file' => ['required', 'file', 'max:51200', 'extensions:pdf,doc,docx,tex,zip'],
+            'note' => ['nullable', 'string', 'max:5000'],
+        ], [
+            'file.extensions' => 'Attach a PDF, DOCX, LaTeX source or ZIP archive.',
+            'file.max' => 'That file is over the 50 MB limit — compress it, or attach the LaTeX source instead.',
+        ]);
+
+        $revise->execute($submission, $request->user(), $request->file('file'), $data['note'] ?? null);
+
+        // Let the editors know the revision landed. Post-commit, queued.
+        Notification::send(
+            EditorialRecipients::editorsOf($submission->journal),
+            new RevisionSubmittedNotification($submission),
+        );
+
+        return back()->with('success', 'Your revised manuscript has been sent to the editor.');
     }
 
     /** @return array<int, array<string, mixed>> */

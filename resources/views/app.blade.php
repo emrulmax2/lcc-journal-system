@@ -18,7 +18,7 @@
      */
 @endphp
 <!DOCTYPE html>
-<html lang="en" class="scroll-smooth">
+<html lang="{{ str_replace('_', '-', app()->getLocale()) }}" class="scroll-smooth">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -27,6 +27,9 @@
     <meta name="description" content="{{ $page['props']['meta']['description'] ?? '' }}">
 
     <link rel="canonical" href="{{ $canonical ?? url()->current() }}">
+
+    {{-- Atom feed discovery, so readers and aggregators find the syndication feed. --}}
+    <link rel="alternate" type="application/atom+xml" title="{{ config('app.name') }} — latest articles" href="{{ route('feed') }}">
 
     {{-- ------------------------------------------------------------------ --}}
     {{-- Highwire Press + Dublin Core. Built by App\Support\CitationMeta from --}}

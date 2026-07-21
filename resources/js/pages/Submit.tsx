@@ -15,7 +15,7 @@ import {
 import { Reveal } from '@/components/Reveal'
 import { formatNumber } from '@/lib/format'
 import { easeOut } from '@/lib/motion'
-import type { Meta } from '@/lib/props'
+import { useShared, type Meta } from '@/lib/props'
 
 /* -------------------------------------------------------------------------- *
  * The submission-wizard page-prop contract.
@@ -239,6 +239,11 @@ function isBound(key: string): boolean {
 
 export default function Submit({ journals, types, draft, meta }: Props) {
   const { flash } = usePage<SharedProps>().props
+  const { auth } = useShared()
+
+  // Where "Cancel" returns to. A signed-in author's draft is saved server-side, so they can
+  // resume from their dashboard; a guest has no dashboard, so they go home.
+  const cancelHref = auth.user ? '/dashboard' : '/'
 
   // Hydrated from the draft on the FIRST render, not in an effect: the server already sent
   // it, so there is no reason for the author to watch an empty form fill itself in.
@@ -400,9 +405,20 @@ export default function Submit({ journals, types, draft, meta }: Props) {
 
         <div>
           {/* Progress is announced as well as drawn, so it isn't colour/position-only. */}
-          <p className="text-sm font-medium text-ink-600" aria-live="polite">
-            Step {step + 1} of {STEPS.length} — {STEPS[step]}
-          </p>
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-sm font-medium text-ink-600" aria-live="polite">
+              Step {step + 1} of {STEPS.length} — {STEPS[step]}
+            </p>
+            {/* An escape hatch from any step. A signed-in author's progress is already saved,
+                so this discards nothing they cannot resume; the copy above says as much. */}
+            <Link
+              href={cancelHref}
+              className="inline-flex items-center gap-1.5 text-sm font-medium text-ink-500 transition-colors duration-200 hover:text-ink-800"
+            >
+              <X className="h-4 w-4" aria-hidden="true" />
+              Cancel
+            </Link>
+          </div>
           <div
             role="progressbar"
             aria-valuenow={step + 1}
@@ -477,10 +493,17 @@ export default function Submit({ journals, types, draft, meta }: Props) {
             </AnimatePresence>
 
             <div className="mt-8 flex items-center justify-between gap-3 border-t border-ink-200 pt-6">
-              <button type="button" onClick={back} disabled={step === 0} className="btn-secondary">
-                <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-                Back
-              </button>
+              {/* No Back on the first step — there is nowhere to go back TO, and a disabled
+                  button that still looks clickable reads as broken. A spacer keeps Continue
+                  right-aligned. */}
+              {step > 0 ? (
+                <button type="button" onClick={back} className="btn-secondary">
+                  <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+                  Back
+                </button>
+              ) : (
+                <span aria-hidden="true" />
+              )}
 
               {step < LAST_STEP ? (
                 <button type="button" onClick={next} className="btn-primary">

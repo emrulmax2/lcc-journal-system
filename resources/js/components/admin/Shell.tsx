@@ -5,10 +5,12 @@ import {
   BookOpen,
   CheckCircle2,
   FileText,
+  Inbox,
   Info,
   LayoutDashboard,
   LayoutTemplate,
   Settings,
+  UserCog,
   Users,
   type LucideIcon,
 } from 'lucide-react'
@@ -16,7 +18,9 @@ import { Reveal } from '@/components/Reveal'
 import {
   depositsHref,
   issuesHref,
+  peopleHref,
   settingsHref,
+  submissionsHref,
   usersHref,
   type AdminChrome,
   type AdminShared,
@@ -65,6 +69,17 @@ export function AdminShell({
 
   const tabs: Tab[] = [
     { label: 'Overview', href: '/admin', icon: LayoutDashboard, show: true },
+
+    // The daily editorial work: manuscripts in review. Shown to anyone who may read the
+    // journal's submission queue. A submission detail page (/admin/submissions/{id}) does not
+    // highlight this tab — the same limitation the Issues tab has for /admin/issues/{id} — and
+    // the match stays on the journal-scoped queue path.
+    {
+      label: 'Submissions',
+      href: submissionsHref(journal.id),
+      icon: Inbox,
+      show: can.viewAllSubmissions,
+    },
     {
       label: 'Issues',
       href: issuesHref(journal.id),
@@ -82,6 +97,26 @@ export function AdminShell({
     },
     { label: 'Settings', href: settingsHref(journal.id), icon: Settings, show: can.manageSettings },
     { label: 'People', href: usersHref(journal.id), icon: Users, show: can.manageUsers },
+
+    /*
+     * SITE-WIDE, and NOT the same tab as "People" above. The two sit side by side because
+     * they are two different jobs and both are real:
+     *
+     *   People   — roles ON THIS JOURNAL. Per-journal, a policy question.
+     *   Accounts — the person exists at all: create, email, password, deactivate, site admin.
+     *
+     * A person is not of a journal, so "create a user" was never expressible on the
+     * per-journal screen — which is why, before this tab, there was no way to make one
+     * outside a seeder.
+     */
+    {
+      label: 'Accounts',
+      href: peopleHref.accounts,
+      icon: UserCog,
+      show: can.manageAccounts,
+      // Current for the roles screen too — both live under the People shell.
+      match: '/admin/users',
+    },
 
     // SITE-WIDE, not this journal's. The tab sits alongside the journal tabs because that is
     // where an editor looks for it, but everything behind it — the footer, the privacy policy,

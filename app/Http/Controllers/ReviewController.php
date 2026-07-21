@@ -7,12 +7,18 @@ namespace App\Http\Controllers;
 use App\Actions\AssignReviewerAction;
 use App\Actions\RespondToInvitationAction;
 use App\Actions\SubmitReviewAction;
+use App\Actions\WithdrawInvitationAction;
 use App\Enums\Recommendation;
 use App\Models\ReviewAssignment;
 use App\Models\Submission;
 use App\Models\User;
+use App\Notifications\ReviewDeclinedNotification;
+use App\Notifications\ReviewInvitationNotification;
+use App\Support\EditorialRecipients;
+use App\Support\ReviewerPool;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Notification;
 use Illuminate\Validation\Rule;
 
 /**
@@ -39,6 +45,18 @@ final class ReviewController extends Controller
         $this->authorize('respond', $assignment);
 
         $respond->execute($assignment, false, $request->user());
+
+        // Makes "The editor has been notified" TRUE. Before this it was a promise the system
+        // did not keep. Post-commit, queued. The editors chose this reviewer, so naming them
+        // is not a leak.
+        $submission = $assignment->round?->submission;
+
+        if ($submission !== null) {
+            Notification::send(
+                EditorialRecipients::editorsOf($submission->journal),
+                new ReviewDeclinedNotification($assignment),
+            );
+        }
 
         return back()->with('success', 'Invitation declined. The editor has been notified.');
     }
@@ -78,18 +96,41 @@ final class ReviewController extends Controller
     {
         $this->authorize('assignReviewers', $submission);
 
+        // Scoped to THIS journal's reviewer pool, not `exists:users,id`. Anyone may hold the
+        // reviewer role on some other journal, or none at all; inviting them here would put a
+        // person with no standing on the manuscript into a confidential review. The pool is
+        // the same set the invite form offers (ReviewerPool::forJournal).
         $data = $request->validate([
-            'reviewer_id' => ['required', 'integer', 'exists:users,id'],
+            'reviewer_id' => ['required', 'integer', Rule::in(ReviewerPool::reviewerIdsOn($submission->journal))],
             'due_at' => ['nullable', 'date', 'after:today'],
         ]);
 
-        $assign->execute(
+        $assignment = $assign->execute(
             $submission,
             User::findOrFail($data['reviewer_id']),
             $request->user(),
             filled($data['due_at'] ?? null) ? now()->parse($data['due_at']) : null,
         );
 
+        // The invitation email. Post-commit (the action returned), queued.
+        $assignment->reviewer->notify(new ReviewInvitationNotification($assignment));
+
         return back()->with('success', 'The reviewer has been invited.');
+    }
+
+    /**
+     * Withdraw an outstanding invitation so a replacement can be invited. Authorised the same
+     * way as inviting — the people who choose reviewers are the people who un-choose them.
+     */
+    public function withdraw(Request $request, ReviewAssignment $assignment, WithdrawInvitationAction $withdraw): RedirectResponse
+    {
+        $submission = $assignment->round?->submission;
+        abort_if($submission === null, 404);
+
+        $this->authorize('assignReviewers', $submission);
+
+        $withdraw->execute($assignment, $request->user());
+
+        return back()->with('success', 'The invitation has been withdrawn.');
     }
 }

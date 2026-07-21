@@ -9,6 +9,7 @@ import {
   FileCheck2,
   Gavel,
   Inbox,
+  LayoutDashboard,
   Lock,
   Plus,
   type LucideIcon,
@@ -54,6 +55,8 @@ export type Reviewer = {
 
 export type Submission = {
   id: string
+  /** The numeric id, for author POSTs (revision upload). */
+  submissionId: number
   title: string
   journal: string
   status: SubmissionStatus
@@ -106,6 +109,10 @@ type Props = {
   reviewQueue: ReviewAssignment[]
   decisionTime: DecisionPoint[]
   checklist: ChecklistItem[]
+  /** The manuscript the checklist describes, for the "Open submission" link. Null if none. */
+  checklistFocus: { id: number; reference: string | null } | null
+  /** Do the policies give this person an editorial role on any journal? Decides the /admin link. */
+  canAccessAdmin: boolean
   meta: Meta
 }
 
@@ -163,6 +170,8 @@ export default function Dashboard({
   reviewQueue,
   decisionTime,
   checklist,
+  checklistFocus,
+  canAccessAdmin,
   meta,
 }: Props) {
   // The server's clock. Deriving "today" on both sides guarantees a hydration mismatch the
@@ -204,10 +213,29 @@ export default function Dashboard({
                 Everything you have in flight — as an author, a reviewer and a handling editor.
               </p>
             </div>
-            <Link href="/submit" className="btn-primary">
-              <Plus className="h-4 w-4" aria-hidden="true" />
-              New submission
-            </Link>
+            <div className="flex flex-wrap items-center gap-3">
+              {/*
+                THE WAY OUT OF THIS ROOM.
+
+                This page is the author/reviewer/editor view. Issues, articles, publication
+                and DOIs are the OTHER dashboard, and this one had no link to it — so an
+                editor who arrived here (a bookmark, the nav, an old habit) was stranded
+                with a New submission button and no route to the work they came to do.
+                Rendered only when the policies say they have an editorial role somewhere,
+                which is the same condition /admin checks before it 403s.
+              */}
+              {canAccessAdmin && (
+                <Link href="/admin" className="btn-ghost">
+                  <LayoutDashboard className="h-4 w-4" aria-hidden="true" />
+                  Editorial admin
+                </Link>
+              )}
+
+              <Link href="/submit" className="btn-primary">
+                <Plus className="h-4 w-4" aria-hidden="true" />
+                New submission
+              </Link>
+            </div>
           </Reveal>
         </div>
       </header>
@@ -383,6 +411,20 @@ export default function Dashboard({
                   ))}
                 </ul>
               )}
+
+              {/* Turns the status report into something actionable: straight to the editor
+                  cockpit for this manuscript, where the outstanding item can be done. Only for
+                  those who may open it (the /admin gate). */}
+              {checklistFocus && canAccessAdmin && (
+                <Link
+                  href={`/admin/submissions/${checklistFocus.id}`}
+                  className="mt-5 inline-flex items-center gap-1.5 text-sm font-semibold text-brand-800 transition-colors duration-200 hover:text-brand-900"
+                >
+                  Open submission
+                  {checklistFocus.reference ? ` (${checklistFocus.reference})` : ''}
+                  <ChevronDown className="h-4 w-4 -rotate-90" aria-hidden="true" />
+                </Link>
+              )}
             </div>
           </aside>
         </div>
@@ -524,12 +566,86 @@ function SubmissionRow({
                     ))}
                   </ul>
                 )}
+
+                {/* The revision loop's author side. Only when the editor has asked for one. */}
+                {submission.status === 'Revisions Requested' && (
+                  <RevisionUpload submissionId={submission.submissionId} />
+                )}
               </div>
             </motion.div>
           )}
         </AnimatePresence>
       </div>
     </RevealItem>
+  )
+}
+
+/**
+ * The author's revision uploader — the other end of a revise-and-resubmit decision. Appends a
+ * new manuscript version and moves the paper back to the editor. The version a reviewer read
+ * is never overwritten (the backend appends), so the record stays intact.
+ */
+function RevisionUpload({ submissionId }: { submissionId: number }) {
+  const [file, setFile] = useState<File | null>(null)
+  const [note, setNote] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [errors, setErrors] = useState<Record<string, string>>({})
+
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!file) return
+    setSubmitting(true)
+    router.post(
+      `/submissions/${submissionId}/revision`,
+      { file, note },
+      {
+        forceFormData: true,
+        preserveScroll: true,
+        onError: (err) => setErrors(err as Record<string, string>),
+        onSuccess: () => {
+          setFile(null)
+          setNote('')
+          setErrors({})
+        },
+        onFinish: () => setSubmitting(false),
+      },
+    )
+  }
+
+  return (
+    <form onSubmit={submit} className="mt-5 rounded-lg border border-gold-500/40 bg-gold-50 p-4">
+      <p className="text-sm font-semibold text-ink-900">Upload your revised manuscript</p>
+      <p className="mt-1 text-xs text-ink-700">
+        The editor has requested revisions. Attach the revised file — your earlier version is
+        kept, never overwritten.
+      </p>
+
+      <input
+        type="file"
+        onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+        accept=".pdf,.doc,.docx,.tex,.zip"
+        className="mt-3 block w-full text-sm text-ink-700 file:mr-3 file:cursor-pointer file:rounded-lg file:border-0 file:bg-ink-900 file:px-3 file:py-2 file:text-sm file:font-semibold file:text-white"
+      />
+      {errors.file && (
+        <p role="alert" className="mt-1.5 text-sm font-medium text-danger-700">
+          {errors.file}
+        </p>
+      )}
+
+      <textarea
+        value={note}
+        onChange={(e) => setNote(e.target.value)}
+        rows={2}
+        placeholder="Optional note to the editor…"
+        className="mt-3 w-full rounded-lg border border-ink-300 p-2.5 text-sm text-ink-900 hover:border-ink-400 focus:border-brand-600"
+      />
+
+      <div className="mt-3 flex justify-end">
+        <button type="submit" disabled={submitting || !file} className="btn-primary cursor-pointer">
+          {submitting ? 'Sending…' : 'Send revision'}
+        </button>
+      </div>
+    </form>
   )
 }
 
@@ -629,12 +745,19 @@ function ReviewerRow({ reviewer }: { reviewer: Reviewer }) {
 
 /* ------------------------------ Review queue ----------------------------- */
 
-/** The four recommendations the backend accepts. Mirrors App\Enums\Recommendation. */
-const RECOMMENDATIONS: Recommendation[] = [
-  'Accept',
-  'Minor revision',
-  'Major revision',
-  'Reject',
+/**
+ * The recommendation options. The backend (App\Enums\Recommendation, validated by
+ * Rule::enum) accepts the VALUE — 'major_revision' — NOT the label 'Major revision'. Posting
+ * the label fails validation on every submit, which is exactly the silent "Submit report does
+ * nothing" it caused. `value` is what we POST; `label` is what the reviewer reads.
+ */
+type RecommendationValue = 'accept' | 'minor_revision' | 'major_revision' | 'reject'
+
+const RECOMMENDATION_OPTIONS: { value: RecommendationValue; label: Recommendation }[] = [
+  { value: 'accept', label: 'Accept' },
+  { value: 'minor_revision', label: 'Minor revision' },
+  { value: 'major_revision', label: 'Major revision' },
+  { value: 'reject', label: 'Reject' },
 ]
 
 function ReviewQueue({ queue, now }: { queue: ReviewAssignment[]; now: string }) {
@@ -744,7 +867,7 @@ function ReviewReportDialog({
   assignment: ReviewAssignment
   onClose: () => void
 }) {
-  const [recommendation, setRecommendation] = useState<Recommendation>('Minor revision')
+  const [recommendation, setRecommendation] = useState<RecommendationValue>('minor_revision')
   const [toAuthor, setToAuthor] = useState('')
   const [toEditor, setToEditor] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -782,11 +905,11 @@ function ReviewReportDialog({
         <fieldset className="mt-6">
           <legend className="text-sm font-semibold text-ink-900">Recommendation</legend>
           <div className="mt-2 grid gap-2 sm:grid-cols-2">
-            {RECOMMENDATIONS.map((r) => (
+            {RECOMMENDATION_OPTIONS.map((opt) => (
               <label
-                key={r}
+                key={opt.value}
                 className={`flex cursor-pointer items-center gap-2 rounded-lg border p-3 text-sm transition-colors duration-200 ${
-                  recommendation === r
+                  recommendation === opt.value
                     ? 'border-brand-600 bg-brand-50 text-brand-900'
                     : 'border-ink-300 hover:border-ink-400'
                 }`}
@@ -794,12 +917,12 @@ function ReviewReportDialog({
                 <input
                   type="radio"
                   name="recommendation"
-                  value={r}
-                  checked={recommendation === r}
-                  onChange={() => setRecommendation(r)}
+                  value={opt.value}
+                  checked={recommendation === opt.value}
+                  onChange={() => setRecommendation(opt.value)}
                   className="cursor-pointer"
                 />
-                {r}
+                {opt.label}
               </label>
             ))}
           </div>

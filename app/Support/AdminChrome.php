@@ -23,7 +23,7 @@ use Illuminate\Support\Collection;
 final class AdminChrome
 {
     /** The editorial capabilities. Someone with none of these has no business in /admin. */
-    private const EDITORIAL = ['manageArticles', 'manageIssues', 'manageSettings', 'manageUsers', 'publish'];
+    private const EDITORIAL = ['manageArticles', 'manageIssues', 'manageSettings', 'manageUsers', 'publish', 'viewAllSubmissions'];
 
     /** @return array<string, mixed> */
     public static function for(User $user, Journal $journal): array
@@ -51,6 +51,17 @@ final class AdminChrome
                 'publish' => $user->can('publish', $journal),
 
                 /*
+                 * THE EDITORIAL COCKPIT. These three decide whether the Submissions tab
+                 * renders and which controls appear on a manuscript — the queue, the
+                 * reviewer-assignment form, the decision form. A section-editor has all
+                 * three but NOT publish; production has none of them. Every one is
+                 * re-asked on the server before the matching mutation runs.
+                 */
+                'viewAllSubmissions' => $user->can('viewAllSubmissions', $journal),
+                'assignReviewers' => $user->can('assignReviewers', $journal),
+                'recordDecision' => $user->can('recordDecision', $journal),
+
+                /*
                  * THE ONE ABILITY IN HERE THAT IS NOT ABOUT THIS JOURNAL.
                  *
                  * Site content — the footer, the privacy policy, the navigation — belongs to
@@ -59,6 +70,22 @@ final class AdminChrome
                  * "Content" tab renders, and the tab is on every admin screen.
                  */
                 'manageSiteContent' => $user->can('manage-site-content'),
+
+                /*
+                 * ALSO NOT ABOUT THIS JOURNAL — and not the same as `manageUsers` above.
+                 *
+                 * manageUsers  : "may you set roles ON THIS JOURNAL" — a JournalPolicy question.
+                 * manageAccounts: "may you create a person" — a person is not of a journal, so
+                 *                 there is no journal to ask about. Site-wide gate.
+                 *
+                 * The nav renders both, as two tabs, because they are two jobs: "who edits
+                 * JCD&MS" and "who has an account". Collapsing them was what left the platform
+                 * with no way to create a user outside a seeder.
+                 */
+                'manageAccounts' => $user->can('manage-users'),
+
+                // Site admin only. Editing a role definition changes every journal at once.
+                'manageRoles' => $user->can('manage-roles'),
             ],
 
             'journals' => self::editorialJournals($user)

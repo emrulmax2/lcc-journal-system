@@ -11,7 +11,9 @@ use App\Models\Article;
 use App\Models\Journal;
 use App\Models\JournalSection;
 use App\Services\Citations\CitationFormatter;
+use App\Services\Content\MarkdownRenderer;
 use App\Support\CitationMeta;
+use Illuminate\Contracts\View\View;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
@@ -117,6 +119,8 @@ class ArticleController extends Controller
                     'journalOpenAccess' => (bool) $article->journal->open_access,
                     'hasPdf' => $article->hasPdf(),
                     'pdfUrl' => $article->hasPdf() ? $article->pdfUrl() : null,
+                    'hasHtmlFullText' => $article->hasHtmlFullText(),
+                    'htmlUrl' => $article->hasHtmlFullText() ? $article->htmlUrl() : null,
                     'isPreview' => $isPreview,
                     'authorDetails' => $article->authors->map(fn ($a) => [
                         'name' => $a->fullName(),
@@ -179,6 +183,43 @@ class ArticleController extends Controller
                 'Content-Disposition' => 'inline; filename="'.$this->downloadFilename($article).'"',
             ],
         );
+    }
+
+    /**
+     * The crawlable HTML full text — server-rendered by Blade, NOT React.
+     *
+     * This is the point: Google Scholar reads the full body from this page without running a
+     * line of JavaScript, and it keeps working if the Node SSR process dies. The body is
+     * rendered through MarkdownRenderer, which ESCAPES raw HTML — an editor cannot inject a
+     * <script> into a public page, and there is no HTML to sanitise after the fact.
+     *
+     * The same citation_* meta tags the landing page carries are emitted here too, and the
+     * canonical link points back at the DOI landing page so this is not treated as a duplicate.
+     */
+    public function html(Request $request, Article $article, MarkdownRenderer $markdown): View
+    {
+        $article->load(['journal', 'authors', 'section', 'issue.volume', 'references']);
+
+        $isPreview = ! $article->isPublished();
+
+        if ($isPreview) {
+            abort_unless(
+                $request->user()?->can('manageArticles', $article->journal) ?? false,
+                404
+            );
+        }
+
+        // No body, no full-text page. Advertising citation_fulltext_html_url is gated on the
+        // same condition, so this only 404s on a URL nobody was told to fetch.
+        abort_unless($article->hasHtmlFullText(), 404);
+
+        return view('articles.fulltext', [
+            'article' => $article,
+            'bodyHtml' => $markdown->toHtml($article->body),
+            'citationMeta' => CitationMeta::for($article),
+            'canonical' => $article->landingUrl(),
+            'indexable' => ! $isPreview,
+        ]);
     }
 
     private function downloadFilename(Article $article): string

@@ -15,6 +15,7 @@ enum ReviewerStatus: string
     case Accepted = 'accepted';
     case Declined = 'declined';
     case ReportSubmitted = 'report_submitted';
+    case Withdrawn = 'withdrawn';
 
     public function label(): string
     {
@@ -23,6 +24,7 @@ enum ReviewerStatus: string
             self::Accepted => 'Accepted',
             self::Declined => 'Declined',
             self::ReportSubmitted => 'Report submitted',
+            self::Withdrawn => 'Withdrawn',
         };
     }
 

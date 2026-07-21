@@ -6,9 +6,12 @@ namespace App\Http\Controllers;
 
 use App\Actions\RecordDecisionAction;
 use App\Enums\DecisionType;
+use App\Mail\DecisionLetterMail;
 use App\Models\Submission;
+use App\Support\EditorialRecipients;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\Rule;
 
 /**
@@ -34,6 +37,12 @@ final class DecisionController extends Controller
         $decision = DecisionType::from($data['decision']);
 
         $record->execute($submission, $decision, $data['body'], $request->user());
+
+        // The decision letter to the author. Post-commit, queued, guest-safe (the address is
+        // the corresponding author's, account or not). The letter body is sent verbatim.
+        if ($email = EditorialRecipients::correspondingAuthorEmail($submission)) {
+            Mail::to($email)->send(new DecisionLetterMail($submission, $decision->label(), $data['body']));
+        }
 
         return back()->with('success', "Decision recorded: {$decision->label()}.");
     }

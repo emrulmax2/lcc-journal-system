@@ -1,10 +1,24 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, router, usePage } from '@inertiajs/react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { ChevronDown, LogOut, Menu, Search, X } from 'lucide-react'
+import {
+  ChevronDown,
+  Gauge,
+  LayoutDashboard,
+  LayoutTemplate,
+  LogOut,
+  Menu,
+  Search,
+  UserCog,
+  UserRound,
+  X,
+  type LucideIcon,
+} from 'lucide-react'
 import { easeOut } from '@/lib/motion'
 import { menuItems, mediaSetting, setting, useShared } from '@/lib/props'
 import type { MenuItem } from '@/lib/props'
+import { peopleHref } from '@/lib/admin'
+import { contentHref } from '@/lib/content'
 import Logo from '@/components/Logo'
 
 type MegaKey = 'authors' | null
@@ -222,34 +236,19 @@ export default function Navbar({ overHero }: { overHero: boolean }) {
             AUTH. "Log in" used to link to /dashboard and only worked because the auth
             middleware bounced you to the login form — and once you were signed in there was
             NO WAY TO SIGN OUT anywhere in the UI, despite the POST /logout route existing.
+
+            The name and Log out now collapse into ONE dropdown, so the bar keeps its space
+            for the nav links and the Submit button.
           */}
           {auth.user ? (
-            <div className="hidden items-center gap-1 lg:flex">
-              <Link
-                href="/dashboard"
-                title={auth.user.name}
-                className={`btn max-w-[10rem] truncate px-4 ${
-                  transparent
-                    ? 'text-white hover:bg-white/15'
-                    : 'text-ink-700 hover:bg-ink-100 hover:text-ink-900'
-                }`}
-              >
-                {auth.user.name}
-              </Link>
-              <button
-                type="button"
-                onClick={logout}
-                aria-label="Log out"
-                className={`btn px-3 ${
-                  transparent
-                    ? 'text-white hover:bg-white/15'
-                    : 'text-ink-700 hover:bg-ink-100 hover:text-ink-900'
-                }`}
-              >
-                <LogOut className="h-4 w-4" aria-hidden="true" />
-                <span className="hidden xl:inline">Log out</span>
-              </button>
-            </div>
+            <UserMenu
+              name={auth.user.name}
+              transparent={transparent}
+              canAccessAdmin={auth.user.canAccessAdmin}
+              canManageSiteContent={auth.user.canManageSiteContent}
+              canManageAccounts={auth.user.canManageAccounts}
+              onLogout={logout}
+            />
           ) : (
             <a
               // A PLAIN ANCHOR, not an Inertia <Link>. /login is a Blade page, outside the
@@ -403,6 +402,45 @@ export default function Navbar({ overHero }: { overHero: boolean }) {
                 </div>
               )}
 
+              {/* Signed-in account links, role-gated — the same set as the desktop dropdown. */}
+              {auth.user && (
+                <div className="mt-6 space-y-1 border-t border-ink-200 pt-6">
+                  <p className="eyebrow">{auth.user.name}</p>
+                  <ul className="space-y-1 pt-1">
+                    <li>
+                      <Link href="/dashboard" className="flex min-h-[44px] items-center gap-2.5 rounded-lg px-3 text-sm text-ink-700 hover:bg-ink-100 hover:text-ink-900">
+                        <LayoutDashboard className="h-4 w-4 text-ink-500" aria-hidden="true" />
+                        Dashboard
+                      </Link>
+                    </li>
+                    {auth.user.canAccessAdmin && (
+                      <li>
+                        <Link href="/admin" className="flex min-h-[44px] items-center gap-2.5 rounded-lg px-3 text-sm text-ink-700 hover:bg-ink-100 hover:text-ink-900">
+                          <Gauge className="h-4 w-4 text-ink-500" aria-hidden="true" />
+                          Editorial admin
+                        </Link>
+                      </li>
+                    )}
+                    {auth.user.canManageSiteContent && (
+                      <li>
+                        <Link href={contentHref.settings} className="flex min-h-[44px] items-center gap-2.5 rounded-lg px-3 text-sm text-ink-700 hover:bg-ink-100 hover:text-ink-900">
+                          <LayoutTemplate className="h-4 w-4 text-ink-500" aria-hidden="true" />
+                          Site content
+                        </Link>
+                      </li>
+                    )}
+                    {auth.user.canManageAccounts && (
+                      <li>
+                        <Link href={peopleHref.accounts} className="flex min-h-[44px] items-center gap-2.5 rounded-lg px-3 text-sm text-ink-700 hover:bg-ink-100 hover:text-ink-900">
+                          <UserCog className="h-4 w-4 text-ink-500" aria-hidden="true" />
+                          Accounts
+                        </Link>
+                      </li>
+                    )}
+                  </ul>
+                </div>
+              )}
+
               <div className="mt-auto flex flex-col gap-2 pt-8">
                 <Link href="/submit" className="btn-primary w-full">
                   Submit research
@@ -462,6 +500,134 @@ function NavLink({
       target={item.newTab ? '_blank' : undefined}
     >
       {item.label}
+    </Link>
+  )
+}
+
+/**
+ * The signed-in user's menu — name + Log out collapsed into one dropdown, so the bar keeps
+ * its space. Self-contained: its own click-outside and Escape handling, independent of the
+ * mega menu's.
+ */
+function UserMenu({
+  name,
+  transparent,
+  canAccessAdmin,
+  canManageSiteContent,
+  canManageAccounts,
+  onLogout,
+}: {
+  name: string
+  transparent: boolean
+  canAccessAdmin: boolean
+  canManageSiteContent: boolean
+  canManageAccounts: boolean
+  onLogout: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const onClick = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('mousedown', onClick)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onClick)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [])
+
+  return (
+    <div ref={ref} className="relative hidden lg:block">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        aria-haspopup="menu"
+        title={name}
+        className={`btn max-w-[12rem] gap-2 px-3 ${
+          transparent ? 'text-white hover:bg-white/15' : 'text-ink-700 hover:bg-ink-100 hover:text-ink-900'
+        }`}
+      >
+        <UserRound className="h-5 w-5 shrink-0" aria-hidden="true" />
+        <span className="truncate">{name}</span>
+        <ChevronDown
+          className={`h-4 w-4 shrink-0 transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
+          aria-hidden="true"
+        />
+      </button>
+
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            role="menu"
+            initial={{ opacity: 0, y: -6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            transition={{ duration: 0.15, ease: easeOut }}
+            className="absolute right-0 z-dropdown mt-2 w-52 rounded-xl border border-ink-200 bg-white p-1.5 shadow-lift"
+          >
+            <MenuLink href="/dashboard" icon={LayoutDashboard} label="Dashboard" onNavigate={() => setOpen(false)} />
+
+            {/* Role-gated. Only shown when the destination would actually admit them — the
+                server re-checks, so a hidden link is a courtesy, not the control. */}
+            {canAccessAdmin && (
+              <MenuLink href="/admin" icon={Gauge} label="Editorial admin" onNavigate={() => setOpen(false)} />
+            )}
+            {canManageSiteContent && (
+              <MenuLink href={contentHref.settings} icon={LayoutTemplate} label="Site content" onNavigate={() => setOpen(false)} />
+            )}
+            {canManageAccounts && (
+              <MenuLink href={peopleHref.accounts} icon={UserCog} label="Accounts" onNavigate={() => setOpen(false)} />
+            )}
+
+            <div className="my-1.5 border-t border-ink-100" />
+
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setOpen(false)
+                onLogout()
+              }}
+              className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm font-medium text-danger-700 transition-colors duration-200 hover:bg-danger-50"
+            >
+              <LogOut className="h-4 w-4" aria-hidden="true" />
+              Log out
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  )
+}
+
+/** One row in the user dropdown — an Inertia link with an icon. */
+function MenuLink({
+  href,
+  icon: Icon,
+  label,
+  onNavigate,
+}: {
+  href: string
+  icon: LucideIcon
+  label: string
+  onNavigate: () => void
+}) {
+  return (
+    <Link
+      href={href}
+      role="menuitem"
+      onClick={onNavigate}
+      className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium text-ink-700 transition-colors duration-200 hover:bg-ink-100 hover:text-ink-900"
+    >
+      <Icon className="h-4 w-4 text-ink-500" aria-hidden="true" />
+      {label}
     </Link>
   )
 }

@@ -8,12 +8,14 @@ import {
   Copy,
   Download,
   ExternalLink,
+  FileText,
   Mail,
   Quote,
   Share2,
   Users,
 } from 'lucide-react'
 import { CardImage } from '@/components/ImageWithFallback'
+import { useTranslations } from '@/lib/i18n'
 import { OpenAccessBadge } from '@/components/Cards'
 import { Reveal } from '@/components/Reveal'
 import { formatDate, formatNumber } from '@/lib/format'
@@ -33,6 +35,8 @@ const FORMATS: { id: CitationFormat; label: string }[] = [
 ]
 
 export default function ArticleDetail({ article, citations, related, meta }: Props) {
+  const { t } = useTranslations()
+
   // Reading-progress bar. Spring-smoothed so it glides rather than snaps. useScroll is
   // SSR-safe: on the server it resolves to a MotionValue(0) and reads no DOM.
   const { scrollYProgress } = useScroll()
@@ -212,7 +216,15 @@ export default function ArticleDetail({ article, citations, related, meta }: Pro
                 {article.hasPdf && article.pdfUrl && (
                   <a href={article.pdfUrl} className="btn-primary">
                     <Download className="h-4 w-4" aria-hidden="true" />
-                    Download PDF
+                    {t('article.download_pdf', 'Download PDF')}
+                  </a>
+                )}
+
+                {/* The crawlable HTML full text — a real, server-rendered page, not this SPA view. */}
+                {article.hasHtmlFullText && article.htmlUrl && (
+                  <a href={article.htmlUrl} className="btn-secondary">
+                    <FileText className="h-4 w-4" aria-hidden="true" />
+                    {t('article.read_full_text', 'Read full text')}
                   </a>
                 )}
 
@@ -224,12 +236,12 @@ export default function ArticleDetail({ article, citations, related, meta }: Pro
                   className="btn-secondary"
                 >
                   <Quote className="h-4 w-4" aria-hidden="true" />
-                  Cite
+                  {t('article.cite', 'Cite')}
                 </button>
 
                 <button type="button" onClick={share} className="btn-secondary">
                   <Share2 className="h-4 w-4" aria-hidden="true" />
-                  {copied === 'link' ? 'Link copied' : 'Share'}
+                  {copied === 'link' ? 'Link copied' : t('article.share', 'Share')}
                 </button>
               </div>
 

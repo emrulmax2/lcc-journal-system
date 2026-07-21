@@ -71,6 +71,12 @@ export type AuthUser = {
   id: number
   name: string
   email: string
+  /** Holds an editorial role on at least one journal — the /admin gate. Decides the "Editorial admin" link. */
+  canAccessAdmin: boolean
+  /** May edit site-wide content (the CMS) — the manage-site-content gate. Decides the "Site content" link. */
+  canManageSiteContent: boolean
+  /** May manage user accounts site-wide — the manage-users gate. Decides the "Accounts" link. */
+  canManageAccounts: boolean
 }
 
 export type SharedProps = {
@@ -89,6 +95,13 @@ export type SharedProps = {
   now: string
   site: Site
   errors: Record<string, string>
+
+  /** The locale in force, e.g. 'en'. Set server-side by SetLocale. */
+  locale: string
+  /** The languages the switcher offers. */
+  locales: { code: string; name: string }[]
+  /** The full message bag for the current locale — a nested { group: { key: value } } tree. */
+  translations: Record<string, unknown>
 }
 
 /**
@@ -104,6 +117,9 @@ export function useShared(): SharedProps {
     now: props.now ?? '',
     site: props.site ?? { settings: {}, menus: {} },
     errors: props.errors ?? {},
+    locale: props.locale ?? 'en',
+    locales: props.locales ?? [],
+    translations: props.translations ?? {},
   }
 }
 
@@ -241,6 +257,9 @@ export type ArticleDetail = Article & {
   licenseHolder: string | null
   hasPdf: boolean
   pdfUrl: string | null
+  /** The crawlable HTML full-text page (Blade-rendered). Null when the article has no body. */
+  hasHtmlFullText: boolean
+  htmlUrl: string | null
   /** True when an editor is previewing an unpublished draft. Never true for the public. */
   isPreview: boolean
   /** EMPTY when the article has a corporate author. */

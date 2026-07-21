@@ -34,6 +34,7 @@ class ReviewAssignment extends Model
             'due_at' => 'datetime',
             'responded_at' => 'datetime',
             'completed_at' => 'datetime',
+            'last_reminded_at' => 'datetime',
         ];
     }
 
