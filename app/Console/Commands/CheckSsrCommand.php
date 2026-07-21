@@ -191,19 +191,39 @@ class CheckSsrCommand extends Command
         }
         $findings[] = '✓ SSR bundle present';
 
-        // 4. The process itself. Only NOW is "start the SSR process" the right advice.
+        // 4. The scheme. INERTIA_SSR_URL must be http://, and it is the ONE url in .env that
+        //    must stay http:// on an https:// site — so a well-meant "make everything https"
+        //    pass over .env, or copying the scheme from APP_URL, kills SSR outright. The SSR
+        //    server is a plain Node HTTP listener on loopback with no certificate and no TLS,
+        //    so https:// fails the handshake, and the gateway swallows the exception exactly
+        //    like every other failure here. Loopback needs no TLS: it never leaves the host.
+        $ssrUrl = (string) config('inertia.ssr.url', 'http://127.0.0.1:13714');
+
+        if (str_starts_with(strtolower($ssrUrl), 'https://')) {
+            return array_merge($findings, [
+                '✗ INERTIA_SSR_URL is HTTPS — '.$ssrUrl,
+                '  The SSR server is a plain HTTP Node process on loopback and speaks no TLS,',
+                '  so every render request fails the handshake and is silently swallowed.',
+                '  APP_URL must be https://. This one must NOT be — it never leaves the host.',
+                '  Fix: INERTIA_SSR_URL=http://127.0.0.1:13714 in .env, then',
+                '       php artisan config:clear && php artisan config:cache',
+            ]);
+        }
+        $findings[] = '✓ SSR url scheme is http';
+
+        // 5. The process itself. Only NOW is "start the SSR process" the right advice.
         $gateway = app(Gateway::class);
 
         if ($gateway instanceof HasHealthCheck && ! $gateway->isHealthy()) {
             return array_merge($findings, [
-                '✗ nothing is answering on '.config('inertia.ssr.url', 'http://127.0.0.1:13714').' —',
+                '✗ nothing is answering on '.$ssrUrl.' —',
                 '  the SSR process is not listening. Start/restart it (docs/DEPLOYMENT.md §6):',
-                '  systemctl status jcdm-ssr   — or —   php artisan inertia:start-ssr',
+                '  systemctl status jcdms-ssr   — or —   php artisan inertia:start-ssr',
             ]);
         }
         $findings[] = '✓ SSR server is answering';
 
-        // 5. Everything is wired up, so the render itself threw. Node logs it; PHP does not.
+        // 6. Everything is wired up, so the render itself threw. Node logs it; PHP does not.
         return array_merge($findings, [
             '✗ all four checks pass, so the RENDER is failing — the SSR server is up but',
             '  returning an error for this page. The stack trace is in the Node process\'s',

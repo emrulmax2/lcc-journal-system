@@ -271,6 +271,22 @@ class DeployCheckCommand extends Command
         $enabled = (bool) config('inertia.ssr.enabled', true);
         $this->result($enabled ? 'pass' : 'warn', 'SSR enabled',
             $enabled ? 'INERTIA_SSR_ENABLED=true — verify the process is running with journal:check-ssr' : 'INERTIA_SSR_ENABLED is off — the public site is NOT server-rendered');
+
+        // INERTIA_SSR_URL is the one URL in .env that must STAY http:// on an https:// site.
+        // The SSR server is a plain Node HTTP listener on loopback — no certificate, no TLS —
+        // so https:// fails the handshake and Inertia swallows it, exactly like every other
+        // SSR failure. Making everything in .env https:// to match APP_URL is the obvious,
+        // well-meant edit that causes it, and nothing else in the system would complain.
+        $ssrUrl = (string) config('inertia.ssr.url', 'http://127.0.0.1:13714');
+
+        if (str_starts_with(strtolower($ssrUrl), 'https://')) {
+            $this->result('fail', 'SSR url scheme', "INERTIA_SSR_URL is https ({$ssrUrl}) — the SSR server speaks plain HTTP on loopback, so every render fails the TLS handshake and the site is not server-rendered. Use http://127.0.0.1:13714");
+            $this->failed = true;
+
+            return;
+        }
+
+        $this->result('pass', 'SSR url scheme', $ssrUrl);
     }
 
     private function checkConfigCached(): void
