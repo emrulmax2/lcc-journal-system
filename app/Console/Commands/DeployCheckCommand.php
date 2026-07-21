@@ -8,6 +8,7 @@ use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
+use Symfony\Component\Process\ExecutableFinder;
 use Throwable;
 
 /**
@@ -226,11 +227,28 @@ class DeployCheckCommand extends Command
         // working site, crawlers see an empty <div id="app"> and every DOI rots. The Blade
         // citation tags are the floor beneath that, but the body content still needs this.
         foreach (['bootstrap/ssr/ssr.js', 'bootstrap/ssr/ssr.mjs'] as $candidate) {
-            if (is_file(base_path($candidate))) {
-                $this->result('pass', 'SSR bundle', $candidate.' present');
+            if (! is_file(base_path($candidate))) {
+                continue;
+            }
+
+            // Presence is not integrity. Inertia's own BundleDetector only calls file_exists(),
+            // so a truncated or zero-byte upload — an interrupted FTP transfer is the usual way
+            // — passes every "is the bundle there?" check in the system. Node then runs it,
+            // does nothing, exits 0, and the supervisor restarts it forever with nothing ever
+            // listening. A real bundle is ~900 KB; 50 KB is far below anything valid and far
+            // above anything truncated.
+            $bytes = (int) filesize(base_path($candidate));
+
+            if ($bytes < 50_000) {
+                $this->result('fail', 'SSR bundle', $candidate.' is only '.number_format($bytes).' bytes — truncated or empty. A real bundle is ~900 KB. Node will run it, exit immediately and never listen. Rebuild with `npm run build` and re-upload.');
+                $this->failed = true;
 
                 return;
             }
+
+            $this->result('pass', 'SSR bundle', $candidate.' present ('.number_format($bytes).' bytes)');
+
+            return;
         }
 
         $this->result('fail', 'SSR bundle', 'bootstrap/ssr/ssr.js is missing — `vite build --ssr` did not run or was not uploaded. The public site will not be server-rendered.');
@@ -287,6 +305,42 @@ class DeployCheckCommand extends Command
         }
 
         $this->result('pass', 'SSR url scheme', $ssrUrl);
+
+        $this->checkSsrRuntime();
+    }
+
+    /**
+     * Can Node actually be found? `inertia:start-ssr` spawns [runtime, bundle] through
+     * /bin/sh, so an unresolvable runtime fails in the SHELL with 127 — and the artisan
+     * command prints that and still exits 0. A supervisor sees a clean exit and restarts
+     * forever, listening on nothing, logging nothing. This is the normal state on cPanel,
+     * where Node lives at /opt/cpanel/ea-nodejsNN/bin/node and is not on PATH — least of
+     * all under systemd, whose service PATH contains no cPanel directories at all.
+     */
+    private function checkSsrRuntime(): void
+    {
+        $runtime = (string) config('inertia.ssr.runtime', 'node');
+
+        $resolved = str_contains($runtime, '/') || str_contains($runtime, '\\')
+            ? (is_file($runtime) && is_executable($runtime) ? $runtime : null)
+            : (new ExecutableFinder)->find($runtime);
+
+        if ($resolved === null) {
+            $this->result('fail', 'SSR runtime', "\"{$runtime}\" cannot be resolved — inertia:start-ssr will spawn it, fail in the shell with 127 and STILL exit 0, so the supervisor restarts forever and nothing ever listens. Set INERTIA_SSR_RUNTIME to an absolute path (cPanel: /opt/cpanel/ea-nodejs22/bin/node).");
+            $this->failed = true;
+
+            return;
+        }
+
+        // A bare 'node' that happens to resolve for THIS user is not proof it resolves for
+        // the supervisor, which runs with a different PATH. Say so rather than passing quietly.
+        if (! str_contains($runtime, '/') && ! str_contains($runtime, '\\')) {
+            $this->result('warn', 'SSR runtime', "resolved '{$runtime}' to {$resolved} using this shell's PATH — but systemd's PATH is not this one. Pin it: INERTIA_SSR_RUNTIME={$resolved}");
+
+            return;
+        }
+
+        $this->result('pass', 'SSR runtime', $resolved);
     }
 
     private function checkConfigCached(): void

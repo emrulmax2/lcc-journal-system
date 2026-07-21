@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\Vite;
 use Inertia\Ssr\BundleDetector;
 use Inertia\Ssr\Gateway;
 use Inertia\Ssr\HasHealthCheck;
+use Symfony\Component\Process\ExecutableFinder;
 
 /**
  * Asserts that a published article page is READABLE BY A MACHINE.
@@ -126,6 +127,55 @@ class CheckSsrCommand extends Command
     }
 
     /**
+     * Is the Node runtime resolvable, as the user this command is running as?
+     *
+     * Returns null when it is fine, or the lines explaining why it is not.
+     *
+     * THE FAILURE THIS CATCHES IS SILENT BY CONSTRUCTION. `inertia:start-ssr` spawns
+     * [runtime, bundle] via Symfony Process, which goes through /bin/sh. A runtime that is
+     * not on PATH makes the SHELL fail with 127; the artisan command prints that line and
+     * then `return self::SUCCESS` — exit 0. systemd sees a clean exit, restarts on schedule,
+     * and the loop never listens on 13714. Nothing in Laravel logs a thing.
+     *
+     * On cPanel this is the normal state, not an edge case: Node is installed per-version at
+     * /opt/cpanel/ea-nodejsNN/bin/node and is NOT on the default PATH — least of all under a
+     * systemd unit, whose PATH is a minimal /usr/local/sbin:...:/bin with no cPanel paths.
+     * The deterministic fix is an absolute INERTIA_SSR_RUNTIME; a unit-level Environment=PATH
+     * works too but is one more thing to keep in step.
+     *
+     * @return list<string>|null
+     */
+    private function runtimeProblem(): ?array
+    {
+        $runtime = (string) config('inertia.ssr.runtime', 'node');
+
+        // An absolute path is the recommended setting, so check it as a path, not a PATH
+        // lookup — ExecutableFinder searches directories and would not confirm this.
+        $resolved = str_contains($runtime, '/') || str_contains($runtime, '\\')
+            ? (is_file($runtime) && is_executable($runtime) ? $runtime : null)
+            : (new ExecutableFinder)->find($runtime);
+
+        if ($resolved !== null) {
+            return null;
+        }
+
+        return [
+            '',
+            '  ✗ AND THE NODE RUNTIME DOES NOT RESOLVE: "'.$runtime.'" is not findable',
+            '    as '.(function_exists('get_current_user') ? get_current_user() : 'this user').'.',
+            '    inertia:start-ssr spawns it through /bin/sh, so the shell fails with 127 —',
+            '    but the artisan command STILL EXITS 0, so the supervisor restarts a process',
+            '    that can never listen, forever, without logging anything.',
+            '    On cPanel, Node is not on PATH. Find it, then pin it absolutely:',
+            '      ls -d /opt/cpanel/ea-nodejs*/bin/node',
+            '      # .env:',
+            '      INERTIA_SSR_RUNTIME=/opt/cpanel/ea-nodejs22/bin/node',
+            '      INERTIA_SSR_ENSURE_RUNTIME_EXISTS=true   # makes this fail LOUDLY, not at exit 0',
+            '    then: php artisan config:clear && php artisan config:cache',
+        ];
+    }
+
+    /**
      * A project-relative path with forward slashes — the form you can paste into a shell.
      * Vite::hotFile() concatenates with '/', so on Windows it comes back mixed-separator.
      */
@@ -211,14 +261,28 @@ class CheckSsrCommand extends Command
         }
         $findings[] = '✓ SSR url scheme is http';
 
-        // 5. The process itself. Only NOW is "start the SSR process" the right advice.
+        // 5. The process itself. Only NOW is "start the SSR process" the right advice — and
+        //    it is still not enough on its own, so the Node runtime is diagnosed alongside
+        //    it. `inertia:start-ssr` spawns [runtime, bundle] through /bin/sh, and when the
+        //    runtime cannot be resolved the child dies at 127 while the ARTISAN COMMAND
+        //    STILL EXITS 0. So a supervisor sees a clean exit, restarts, and loops forever
+        //    with nothing ever listening. That is why this is checked here and not left to
+        //    the operator to infer from "nothing is answering".
         $gateway = app(Gateway::class);
 
         if ($gateway instanceof HasHealthCheck && ! $gateway->isHealthy()) {
-            return array_merge($findings, [
-                '✗ nothing is answering on '.$ssrUrl.' —',
-                '  the SSR process is not listening. Start/restart it (docs/DEPLOYMENT.md §6):',
+            $notListening = [
+                '✗ nothing is answering on '.$ssrUrl.' — the SSR process is not listening.',
+            ];
+
+            if (($runtimeProblem = $this->runtimeProblem()) !== null) {
+                return array_merge($findings, $notListening, $runtimeProblem);
+            }
+
+            return array_merge($findings, $notListening, [
+                '  The Node runtime resolves, so start/restart it (docs/DEPLOYMENT.md §6):',
                 '  systemctl status jcdms-ssr   — or —   php artisan inertia:start-ssr',
+                '  If it will not stay up: journalctl -u jcdms-ssr -n 50 --no-pager',
             ]);
         }
         $findings[] = '✓ SSR server is answering';
