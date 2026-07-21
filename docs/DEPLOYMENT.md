@@ -65,9 +65,9 @@ common cPanel shortcut and it exposes `.env`, `storage/` and `vendor/` to the we
 
 Instead, either:
 
-- **(Preferred)** Set the domain's document root to `~/jcdm/public` in cPanel →
+- **(Preferred)** Set the domain's document root to `~/lcc-journal-system/public` in cPanel →
   *Domains* → *Manage* → *Document Root*; or
-- Symlink: `ln -s ~/jcdm/public ~/public_html`
+- Symlink: `ln -s ~/lcc-journal-system/public ~/public_html`
 
 Confirm afterwards that `https://jcdm.lcc.ac.uk/.env` returns **404**, not the file.
 
@@ -105,10 +105,36 @@ CACHE_STORE=database
 SESSION_DRIVER=database
 
 INERTIA_SSR_ENABLED=true
-INERTIA_SSR_URL=http://127.0.0.1:13714
+INERTIA_SSR_URL=http://127.0.0.1:13714   # http:// — NOT https://, see below
+INERTIA_SSR_RUNTIME=/opt/cpanel/ea-nodejs22/bin/node   # absolute; `node` is NOT on PATH
+INERTIA_SSR_ENSURE_RUNTIME_EXISTS=true                 # fail loudly, not at exit 0
 
 CROSSREF_ENDPOINT=sandbox       # LEAVE ON SANDBOX until §9
 ```
+
+**`INERTIA_SSR_RUNTIME` must be an absolute path, and `node -v` in your SSH session proves
+nothing.** Inertia spawns the runtime through `/bin/sh`. A bare `node` that the shell cannot
+find fails with 127 — and `inertia:start-ssr` prints that line and **still exits 0**. systemd
+sees a clean exit, restarts on `RestartSec`, and loops forever: nothing listening, nothing
+logged, and a unit that looks fine. On cPanel, Node is installed per-version and is *not* on
+the default PATH, and a systemd unit's PATH is a minimal `/usr/local/sbin:…:/bin` with no
+cPanel directories in it at all. Find the binary and pin it:
+
+```bash
+ls -d /opt/cpanel/ea-nodejs*/bin/node     # e.g. /opt/cpanel/ea-nodejs22/bin/node
+```
+
+`INERTIA_SSR_ENSURE_RUNTIME_EXISTS=true` converts that silent exit 0 into a loud exit 1 with
+a message. The package default is `false`; leaving it false is how this failure hides.
+`deploy:check` now fails when the runtime cannot be resolved.
+
+**`INERTIA_SSR_URL` is the one URL here that must stay `http://`.** Everything else on this
+site is `https://`, so making this one match is the obvious, well-meant edit — and it takes
+SSR down completely. The SSR server is a plain Node HTTP listener bound to loopback: no
+certificate, no TLS. Point Inertia at `https://127.0.0.1:13714` and every render fails the
+handshake, the gateway swallows the exception, and you get §1 — a working site for humans
+and an empty `<div id="app">` for every crawler, with the systemd unit sitting there green.
+It needs no TLS because the traffic never leaves the host. `deploy:check` now fails on this.
 
 `APP_URL` matters more than it looks. `citation_pdf_url` and `citation_abstract_html_url`
 are generated from it, and Google Scholar treats an `http://` advertised URL on an
@@ -142,20 +168,31 @@ cannot run `systemctl`.
 
 ```ini
 [Unit]
-Description=Meridian Inertia SSR (jcdm.lcc.ac.uk)
+Description=Meridian Journal Inertia SSR (jcdms.lcc.ac.uk)
 After=network.target
 
 [Service]
 Type=simple
-User=lccacuk                       # the cPanel account user
-WorkingDirectory=/home/lccacuk/jcdm
-ExecStart=/usr/bin/php artisan inertia:start-ssr
+# the cPanel account user — verify it exists first with: id jcdmslccac
+User=jcdmslccac
+Group=jcdmslccac
+WorkingDirectory=/home/jcdmslccac/lcc-journal-system
+# BOTH binaries absolute. /usr/bin/php on cPanel is a perl wrapper that picks a PHP version
+# from the environment, and a systemd unit does not have the environment it expects.
+# Confirm yours: ls -d /opt/cpanel/ea-php*/root/usr/bin/php
+ExecStart=/opt/cpanel/ea-php82/root/usr/bin/php artisan inertia:start-ssr
+# systemd's default PATH has no cPanel directories, so a bare `node` is unfindable here even
+# though it works in your SSH session. Belt and braces with INERTIA_SSR_RUNTIME in .env.
+Environment=PATH=/opt/cpanel/ea-nodejs22/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 Restart=always
 RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
 ```
+
+Comments must be on their own line. systemd does **not** strip trailing `#` comments — a
+comment after `User=` becomes part of the username and the unit dies with `217/USER`.
 
 ```bash
 systemctl enable --now jcdm-ssr
@@ -165,6 +202,49 @@ systemctl status jcdm-ssr
 `Restart=always` is the point: the SSR process dying is the failure mode from §1, and it
 must come straight back.
 
+#### If the unit will not start
+
+Read the exit code in `systemctl status` before anything else — these fire *before* PHP runs:
+
+| Code | Meaning | Fix |
+|---|---|---|
+| `217/USER` | `User=`/`Group=` does not exist | `id <user>`; check for a trailing comment on the line |
+| `200/CHDIR` | `WorkingDirectory` wrong or unreadable | `ls -ld /home/jcdmslccac/lcc-journal-system` |
+| `203/EXEC` | `ExecStart` binary wrong | `which php` as the account; on cPanel it is often `/opt/cpanel/ea-php82/root/usr/bin/php` |
+| `1/FAILURE` in ~200 ms | PHP booted and the command returned FAILURE. It **always prints why** — `journalctl -u jcdms-ssr -n 50 --no-pager` has the line. Only three things do this: SSR disabled in config, no SSR bundle, or `ENSURE_RUNTIME_EXISTS=true` with an unfindable runtime. | Read the journal line; it names which |
+
+Note what is **not** in that table: a missing Node runtime, on its own, does **not** produce a
+failing exit code. The shell fails with 127, `inertia:start-ssr` prints it and exits **0**, and
+systemd restarts a clean exit forever. If the unit flaps with no failure status and nothing
+ever listens, that is the one to suspect — see `INERTIA_SSR_RUNTIME` in §5.
+
+`systemctl cat jcdm-ssr` shows what systemd actually parsed, which is the fastest way to
+spot a mangled value. Once it starts, `journalctl -u jcdm-ssr -n 50` has the app-level errors.
+
+#### If the unit IS running but `check-ssr` still says SSR IS DOWN
+
+This is the confusing one, and "start the SSR process" is the wrong advice for it. Inertia
+never contacts the SSR server at all in three of these cases, so the service looks perfectly
+healthy while every page falls back to client rendering:
+
+```bash
+php artisan journal:check-ssr    # prints the reason, in the order Inertia checks it
+```
+
+| What it reports | Why | Fix |
+|---|---|---|
+| SSR is DISABLED in config | `config:cache` ran while `.env` still lacked `INERTIA_SSR_ENABLED=true`. The cached value wins. | `php artisan config:clear && php artisan config:cache` |
+| `public/hot` EXISTS | Inertia checks `Vite::isRunningHot()` FIRST and posts to Vite's dev server instead of the SSR server. The file is gitignored, so it never arrives by `git pull` — but a zip or FTP mirror of a dev machine carries it straight into production. | `rm public/hot` |
+| NO SSR BUNDLE | `bootstrap/ssr/ssr.js` is gitignored too. It is built by `npm run build` and **rsynced** by the deploy workflow — a hand deploy that only ran `git pull` will never have it. | Build locally, upload `bootstrap/ssr/` |
+| INERTIA_SSR_URL is HTTPS | The SSR server is plain HTTP on loopback and speaks no TLS, so the handshake fails and is swallowed. Matching it to `APP_URL` is the usual cause. | `INERTIA_SSR_URL=http://127.0.0.1:13714`, then `config:clear && config:cache` |
+| nothing answering on :13714 | Only *now* is the process genuinely down. | `systemctl restart jcdms-ssr` |
+| all four pass, render failing | The bundle is there and stale or throwing. PHP sees nothing; only Node logs it. | `journalctl -u jcdm-ssr -n 50`, then rebuild and redeploy `bootstrap/ssr/` |
+
+Both traps in the middle come from the same root cause: **`public/hot` and `bootstrap/ssr/`
+are gitignored build artefacts.** Git will neither deliver the one you need nor remove the
+one you must not have. Only §11's rsync does that, which is why the first hand deploy is the
+one that gets bitten.
+
 ### Option B — no root, cron watchdog
 
 If you cannot touch systemd, a minute-by-minute watchdog is an acceptable fallback. It is
@@ -172,14 +252,14 @@ worse than systemd — it can leave the site invisible to crawlers for up to 60 
 but it is far better than nothing:
 
 ```cron
-* * * * * pgrep -f "inertia:start-ssr" > /dev/null || (cd ~/jcdm && nohup php artisan inertia:start-ssr >> storage/logs/ssr.log 2>&1 &)
+* * * * * pgrep -f "inertia:start-ssr" > /dev/null || (cd ~/lcc-journal-system && nohup php artisan inertia:start-ssr >> storage/logs/ssr.log 2>&1 &)
 ```
 
 ### Queue worker and scheduler (both required)
 
 ```cron
-* * * * * cd ~/jcdm && php artisan schedule:run >> /dev/null 2>&1
-* * * * * cd ~/jcdm && php artisan queue:work --stop-when-empty --max-time=55 >> storage/logs/queue.log 2>&1
+* * * * * cd ~/lcc-journal-system && php artisan schedule:run >> /dev/null 2>&1
+* * * * * cd ~/lcc-journal-system && php artisan queue:work --stop-when-empty --max-time=55 >> storage/logs/queue.log 2>&1
 ```
 
 The queue is what deposits DOIs to Crossref. Without a worker, articles publish correctly
@@ -338,7 +418,7 @@ site is serving correctly" stop being two different things.
 | `SSH_PUBLIC_KEY` | The public half (optional; written alongside the private key). |
 | `SSH_HOST` | Server hostname or IP. |
 | `SSH_USERNAME` | The cPanel / SSH account user. |
-| `SSH_DEPLOY_PATH` | Absolute path to the app on the server, e.g. `/home/lccacuk/jcdm`. This is the `~/jcdm` from §6, spelled out in full. |
+| `SSH_DEPLOY_PATH` | Absolute path to the app on the server: `/home/jcdmslccac/lcc-journal-system`. This is the `~/lcc-journal-system` from §6, spelled out in full. |
 
 ### Two things to adapt before the first automated deploy
 
