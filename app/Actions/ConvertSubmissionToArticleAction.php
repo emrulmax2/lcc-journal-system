@@ -87,9 +87,10 @@ final class ConvertSubmissionToArticleAction
     }
 
     /**
-     * The slug is NOT frozen yet — publication freezes it. It must still be unique within
-     * the journal from the moment it exists, because (journal_id, slug) is a unique index
-     * and two accepted papers with the same title are not a hypothetical.
+     * The slug is NOT frozen yet — publication freezes it. It must still be unique across
+     * EVERY journal from the moment it exists: the public URL is /articles/{slug}, with no
+     * journal in it, `slug` is a unique index, and two accepted papers with the same title
+     * are not a hypothetical.
      */
     private function uniqueSlug(Submission $submission): string
     {
@@ -102,7 +103,7 @@ final class ConvertSubmissionToArticleAction
         $slug = $base;
         $n = 2;
 
-        while (Article::where('journal_id', $submission->journal_id)->where('slug', $slug)->exists()) {
+        while (Article::where('slug', $slug)->exists()) {
             $slug = "{$base}-{$n}";
             $n++;
         }

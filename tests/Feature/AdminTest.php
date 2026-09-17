@@ -496,6 +496,23 @@ describe('the article editor', function () {
             ->assertSessionHasErrors('corporate_author');
     });
 
+    it('refuses a slug another JOURNAL already uses — the public URL has no journal in it', function () {
+        [, , $taken] = adminJournal();
+        [$journalB] = adminJournal(['slug' => 'journal-b', 'abbreviation' => 'JB']);
+
+        $editor = grantRoleOn(User::factory()->create(), $journalB, 'journal-editor');
+
+        $this->actingAs($editor)
+            ->post("/admin/journals/{$journalB->id}/articles", [
+                'title' => 'An editorial',
+                'slug' => $taken->slug,
+                'authors' => [['given_name' => 'A', 'family_name' => 'Person']],
+            ])
+            ->assertSessionHasErrors('slug');
+
+        expect(Article::where('slug', $taken->slug)->count())->toBe(1);
+    });
+
     it('does not accept a slug or a sequence for a PUBLISHED article', function () {
         [$journal, , $article] = adminJournal();
 

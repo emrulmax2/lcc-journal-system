@@ -22,6 +22,7 @@ use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 uses(RefreshDatabase::class);
@@ -349,6 +350,17 @@ describe('acceptance converts the submission to an article', function () {
 
         expect($again->id)->toBe($first->id)
             ->and(Article::count())->toBe(1);
+    });
+
+    it('gives the article a slug no OTHER journal is using either', function () {
+        // /articles/{slug} carries no journal, so a slug taken anywhere is taken everywhere.
+        // The factory hangs this article off a journal of its own, not $this->journal.
+        $taken = Str::slug($this->submission->title);
+        Article::factory()->create(['slug' => $taken]);
+
+        $article = app(ConvertSubmissionToArticleAction::class)->execute($this->submission);
+
+        expect($article->slug)->toBe("{$taken}-2");
     });
 
     it('leaves the accepted article facing the publish gate, not published by it', function () {

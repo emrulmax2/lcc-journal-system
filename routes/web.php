@@ -220,11 +220,11 @@ Route::middleware('auth')->group(function () {
 | reimplementing the pre-flight. `production` reaches neither: it may prepare
 | everything and make nothing permanent.
 |
-| {article:id} rather than {article}: Article::getRouteKeyName() is `slug`,
-| and a slug is unique only WITHIN a journal (see the articles migration). The
-| public routes can bind on it because they only ever serve published articles;
-| the admin edits drafts across every journal, where two of them may legally
-| share one.
+| {article:id} rather than {article}: Article::getRouteKeyName() is `slug`.
+| Slugs are unique across EVERY journal (a unique index — /articles/{slug} has
+| no journal in it, so the public routes depend on that), but a draft's slug is
+| still editable. Binding the admin by id keeps an editor's URL stable while
+| they change it.
 */
 
 Route::middleware('auth')->prefix('admin')->name('admin.')->group(function () {

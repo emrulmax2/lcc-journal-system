@@ -195,9 +195,9 @@ final class ArticleController extends Controller
         if (! $frozen) {
             $rules['slug'] = [
                 'required', 'string', 'max:255', 'regex:/^[a-z0-9]+(?:-[a-z0-9]+)*$/',
-                Rule::unique('articles', 'slug')
-                    ->where('journal_id', $journal->id)
-                    ->ignore($article?->id),
+                // Across EVERY journal, not just this one: /articles/{slug} has no journal in
+                // it, so a slug another journal holds is already somebody's URL.
+                Rule::unique('articles', 'slug')->ignore($article?->id),
             ];
             $rules['sequence'] = ['nullable', 'integer', 'min:1', 'max:9999'];
         }
@@ -206,6 +206,8 @@ final class ArticleController extends Controller
             'authors.*.orcid.regex' => 'An ORCID looks like 0000-0002-1825-0097. Leave it empty rather '
                 .'than guessing — a wrong ORCID attributes this work to a real, identifiable other person.',
             'slug.regex' => 'The slug is the permanent URL: lowercase letters, numbers and hyphens only.',
+            'slug.unique' => 'Another article already has this URL — in this journal or another one. '
+                .'Article URLs do not include the journal, so every slug must be unique across the site.',
             'issue_id.prohibited' => 'This journal publishes continuously. It has no issues to place an article in.',
             'last_page.gte' => 'The page range ends before it starts.',
             'pdf.mimetypes' => 'The full text must be a PDF — citation_pdf_url is advertised to Google Scholar.',

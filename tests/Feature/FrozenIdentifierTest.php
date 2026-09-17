@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Enums\ArticleStatus;
 use App\Exceptions\FrozenIdentifierException;
 use App\Models\Article;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 
 uses(RefreshDatabase::class);
@@ -36,6 +37,16 @@ it('refuses to change the slug of a published article', function () {
         ->toThrow(FrozenIdentifierException::class);
 
     expect($article->fresh()->slug)->toBe('frozen-slug');
+});
+
+it('refuses one slug for two articles in DIFFERENT journals — at the database, not just the form', function () {
+    // The public URL is /articles/{slug}, with no journal in it. Two journals each publishing
+    // "editorial" would put two DOIs on one address, and route binding would serve whichever
+    // row came back first for both. The factory gives each article a journal of its own.
+    Article::factory()->published()->create(['slug' => 'editorial']);
+
+    expect(fn () => Article::factory()->published()->create(['slug' => 'editorial']))
+        ->toThrow(UniqueConstraintViolationException::class);
 });
 
 it('refuses to change the doi_suffix of a published article', function () {
