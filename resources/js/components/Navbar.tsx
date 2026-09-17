@@ -96,7 +96,7 @@ function workspaceNav(user: AuthUser): WorkspaceLink[] {
       show: user.canAccessAdmin,
     },
     {
-      label: 'Site content',
+      label: 'Site settings',
       url: contentHref.settings,
       icon: LayoutTemplate,
       match: ['/admin/content'],
@@ -595,7 +595,7 @@ export default function Navbar({ overHero }: { overHero: boolean }) {
                           <li>
                             <Link href={contentHref.settings} className="flex min-h-[44px] items-center gap-2.5 rounded-lg px-3 text-sm text-ink-700 hover:bg-ink-100 hover:text-ink-900">
                               <LayoutTemplate className="h-4 w-4 text-ink-500" aria-hidden="true" />
-                              Site content
+                              Site settings
                             </Link>
                           </li>
                         )}
@@ -779,7 +779,7 @@ function UserMenu({
                   <MenuLink href="/admin" icon={Gauge} label="Editorial admin" onNavigate={() => setOpen(false)} />
                 )}
                 {canManageSiteContent && (
-                  <MenuLink href={contentHref.settings} icon={LayoutTemplate} label="Site content" onNavigate={() => setOpen(false)} />
+                  <MenuLink href={contentHref.settings} icon={LayoutTemplate} label="Site settings" onNavigate={() => setOpen(false)} />
                 )}
                 {canManageAccounts && (
                   <MenuLink href={peopleHref.accounts} icon={UserCog} label="Accounts" onNavigate={() => setOpen(false)} />

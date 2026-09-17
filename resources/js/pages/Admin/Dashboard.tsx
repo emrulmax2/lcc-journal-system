@@ -92,7 +92,7 @@ export default function AdminDashboard({ journals, canManageSiteContent, meta }:
             {canManageSiteContent && (
               <Link href={contentHref.settings} className="btn-secondary">
                 <LayoutTemplate className="h-4 w-4" aria-hidden="true" />
-                Site content
+                Site settings
               </Link>
             )}
           </Reveal>

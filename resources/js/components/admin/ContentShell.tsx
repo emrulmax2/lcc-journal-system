@@ -68,7 +68,7 @@ export function ContentShell({
         <div className="container-page pt-10">
           <Reveal className="flex flex-wrap items-end justify-between gap-6">
             <div className="min-w-0">
-              <p className="eyebrow">Site content</p>
+              <p className="eyebrow">Site settings</p>
               <h1 className="mt-3 font-serif text-3xl sm:text-4xl">{title}</h1>
               {description && <p className="mt-3 max-w-prose text-ink-600">{description}</p>}
             </div>
@@ -81,7 +81,7 @@ export function ContentShell({
             </div>
           </Reveal>
 
-          <nav aria-label="Site content" className="mt-8 flex flex-wrap gap-1 overflow-x-auto">
+          <nav aria-label="Site settings" className="mt-8 flex flex-wrap gap-1 overflow-x-auto">
             {TABS.map((tab) => {
               const active = path.startsWith(tab.href)
               const Icon = tab.icon
