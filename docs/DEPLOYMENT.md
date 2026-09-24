@@ -86,6 +86,19 @@ missing after a deploy, SSR silently will not start — see §1.
 
 Upload everything except `node_modules/`, `.git/`, `tests/`.
 
+**`node_modules` is not needed on the server, and that is a deliberate property of the
+build.** `vite.config.ts` sets `ssr: { noExternal: true }`, so the SSR bundle inlines every
+package and imports nothing but Node built-ins. Leave it that way. If it ever goes back to
+a list of packages, the bundle starts importing `react`, `react-dom` and `@inertiajs/core`
+by name — and then the server needs a matching `node_modules` beside it, or **Node exits
+instantly with `ERR_MODULE_NOT_FOUND`**. That failure is nasty to read: the systemd unit
+stays `active (running)` with one task and no child, and `journal:check-ssr` reports only
+"nothing is answering on 13714". Verify a bundle is self-contained with:
+
+```bash
+grep -oE 'from "[@a-z][^"]*"' bootstrap/ssr/ssr.js | sort -u   # only node: / built-ins
+```
+
 ---
 
 ## 5. Environment
@@ -106,27 +119,46 @@ SESSION_DRIVER=database
 
 INERTIA_SSR_ENABLED=true
 INERTIA_SSR_URL=http://127.0.0.1:13714   # http:// — NOT https://, see below
-INERTIA_SSR_RUNTIME=/opt/cpanel/ea-nodejs22/bin/node   # absolute; `node` is NOT on PATH
+INERTIA_SSR_RUNTIME=node        # a NAME, not a path — see below. Symlink node onto PATH.
 INERTIA_SSR_ENSURE_RUNTIME_EXISTS=true                 # fail loudly, not at exit 0
 
 CROSSREF_ENDPOINT=sandbox       # LEAVE ON SANDBOX until §9
 ```
 
-**`INERTIA_SSR_RUNTIME` must be an absolute path, and `node -v` in your SSH session proves
-nothing.** Inertia spawns the runtime through `/bin/sh`. A bare `node` that the shell cannot
-find fails with 127 — and `inertia:start-ssr` prints that line and **still exits 0**. systemd
-sees a clean exit, restarts on `RestartSec`, and loops forever: nothing listening, nothing
-logged, and a unit that looks fine. On cPanel, Node is installed per-version and is *not* on
-the default PATH, and a systemd unit's PATH is a minimal `/usr/local/sbin:…:/bin` with no
-cPanel directories in it at all. Find the binary and pin it:
+**`INERTIA_SSR_RUNTIME` must be a bare name — NOT an absolute path.** This is the opposite
+of what it looks like it should be, so it is worth knowing why.
+
+`inertia:start-ssr` validates the runtime with Symfony's `ExecutableFinder`, which searches
+**only the directories on `PATH`** and, for any value containing a slash, gives up and
+returns null without ever checking whether that file exists. So
+`INERTIA_SSR_RUNTIME=/opt/cpanel/ea-nodejs22/bin/node` together with
+`INERTIA_SSR_ENSURE_RUNTIME_EXISTS=true` **can never start**, on any server, no matter how
+correct the path is. It fails with `SSR runtime "…/node" could not be found.` while
+`node -v` on that exact path prints a version.
+
+Put Node on `PATH` instead, as root, once:
 
 ```bash
-ls -d /opt/cpanel/ea-nodejs*/bin/node     # e.g. /opt/cpanel/ea-nodejs22/bin/node
+ls -d /opt/cpanel/ea-nodejs*/bin/node                          # find it
+ln -s /opt/cpanel/ea-nodejs22/bin/node /usr/local/bin/node     # put it on PATH
+node -v                                                        # now resolvable everywhere
 ```
 
+`/usr/local/bin` is on systemd's default PATH, so this fixes the service, cron and plain SSH
+sessions at once. Keep the unit's `Environment=PATH=…` line as well.
+
+The reason this matters at all: Inertia spawns the runtime through `/bin/sh`. A bare `node`
+the shell cannot find fails with 127 — and `inertia:start-ssr` prints that line and **still
+exits 0**. systemd sees a clean exit, restarts on `RestartSec`, and loops forever: nothing
+listening, nothing logged, and a unit that looks fine. On cPanel, Node is installed
+per-version and is *not* on the default PATH, and a systemd unit's PATH is a minimal
+`/usr/local/sbin:…:/bin` with no cPanel directories in it at all — hence the symlink.
+
 `INERTIA_SSR_ENSURE_RUNTIME_EXISTS=true` converts that silent exit 0 into a loud exit 1 with
-a message. The package default is `false`; leaving it false is how this failure hides.
-`deploy:check` now fails when the runtime cannot be resolved.
+a message. The package default is `false`; leaving it false is how this failure hides. If
+you genuinely cannot create the symlink, the only working alternative is an absolute path
+**with the flag off** — Node still launches, and `deploy:check` validates absolute paths
+properly on its own.
 
 **`INERTIA_SSR_URL` is the one URL here that must stay `http://`.** Everything else on this
 site is `https://`, so making this one match is the obvious, well-meant edit — and it takes
@@ -237,7 +269,7 @@ php artisan journal:check-ssr    # prints the reason, in the order Inertia check
 | `public/hot` EXISTS | Inertia checks `Vite::isRunningHot()` FIRST and posts to Vite's dev server instead of the SSR server. The file is gitignored, so it never arrives by `git pull` — but a zip or FTP mirror of a dev machine carries it straight into production. | `rm public/hot` |
 | NO SSR BUNDLE | `bootstrap/ssr/ssr.js` is gitignored too. It is built by `npm run build` and **rsynced** by the deploy workflow — a hand deploy that only ran `git pull` will never have it. | Build locally, upload `bootstrap/ssr/` |
 | INERTIA_SSR_URL is HTTPS | The SSR server is plain HTTP on loopback and speaks no TLS, so the handshake fails and is swallowed. Matching it to `APP_URL` is the usual cause. | `INERTIA_SSR_URL=http://127.0.0.1:13714`, then `config:clear && config:cache` |
-| nothing answering on :13714 | Only *now* is the process genuinely down. | `systemctl restart jcdms-ssr` |
+| nothing answering on :13714 | Only *now* is the process genuinely down — **including when the unit says `active (running)`**. PHP is the service; Node is its child. If `systemctl status` shows `Tasks: 1` and no `node` under CGroup, Node started and died in milliseconds, and PHP happily kept running. The usual cause is a bundle that is not self-contained (§4) — `journalctl` shows `ERR_MODULE_NOT_FOUND`. | `journalctl -u jcdms-ssr -n 50 --no-pager`, then run the bundle by hand: `node bootstrap/ssr/ssr.js` |
 | all four pass, render failing | The bundle is there and stale or throwing. PHP sees nothing; only Node logs it. | `journalctl -u jcdm-ssr -n 50`, then rebuild and redeploy `bootstrap/ssr/` |
 
 Both traps in the middle come from the same root cause: **`public/hot` and `bootstrap/ssr/`

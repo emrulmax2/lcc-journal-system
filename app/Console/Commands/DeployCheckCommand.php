@@ -325,7 +325,24 @@ class DeployCheckCommand extends Command
             : (new ExecutableFinder)->find($runtime);
 
         if ($resolved === null) {
-            $this->result('fail', 'SSR runtime', "\"{$runtime}\" cannot be resolved — inertia:start-ssr will spawn it, fail in the shell with 127 and STILL exit 0, so the supervisor restarts forever and nothing ever listens. Set INERTIA_SSR_RUNTIME to an absolute path (cPanel: /opt/cpanel/ea-nodejs22/bin/node).");
+            $this->result('fail', 'SSR runtime', "\"{$runtime}\" cannot be resolved — inertia:start-ssr will spawn it, fail in the shell with 127 and STILL exit 0, so the supervisor restarts forever and nothing ever listens. Put node on PATH and use the bare name: ln -s /opt/cpanel/ea-nodejs22/bin/node /usr/local/bin/node, then INERTIA_SSR_RUNTIME=node.");
+            $this->failed = true;
+
+            return;
+        }
+
+        $isPath = str_contains($runtime, '/') || str_contains($runtime, '\\');
+
+        /*
+         * An absolute path is resolvable HERE — this command checks the file directly —
+         * but inertia:start-ssr does not check it that way. It asks Symfony's
+         * ExecutableFinder, which searches only PATH and returns null for any value
+         * containing a slash, without ever testing the file. So this exact pair is
+         * unstartable however correct the path is, and it fails with a message that says
+         * the runtime "could not be found" while `node -v` on it prints a version.
+         */
+        if ($isPath && config('inertia.ssr.ensure_runtime_exists', false)) {
+            $this->result('fail', 'SSR runtime', "INERTIA_SSR_RUNTIME is a path ({$runtime}) AND INERTIA_SSR_ENSURE_RUNTIME_EXISTS is true — inertia:start-ssr checks the runtime with Symfony's ExecutableFinder, which only searches PATH and rejects anything containing a slash, so it can never start. Symlink node onto PATH and set INERTIA_SSR_RUNTIME=node, or turn the flag off.");
             $this->failed = true;
 
             return;
@@ -333,8 +350,8 @@ class DeployCheckCommand extends Command
 
         // A bare 'node' that happens to resolve for THIS user is not proof it resolves for
         // the supervisor, which runs with a different PATH. Say so rather than passing quietly.
-        if (! str_contains($runtime, '/') && ! str_contains($runtime, '\\')) {
-            $this->result('warn', 'SSR runtime', "resolved '{$runtime}' to {$resolved} using this shell's PATH — but systemd's PATH is not this one. Pin it: INERTIA_SSR_RUNTIME={$resolved}");
+        if (! $isPath) {
+            $this->result('warn', 'SSR runtime', "resolved '{$runtime}' to {$resolved} using this shell's PATH — systemd's PATH is not this one. Make it resolvable there too: ln -s {$resolved} /usr/local/bin/node (on systemd's default PATH), and keep Environment=PATH in the unit.");
 
             return;
         }
