@@ -21,15 +21,16 @@ class DatabaseSeeder extends Seeder
             CmsSeeder::class,
         ]);
 
-        // DemoSeeder      — six invented journals, invented authors, invented metrics.
-        //                   Running it on the live LCC site would publish fabricated
-        //                   research under LCC's name.
-        // LocalDevSeeder  — login accounts, a manuscript in peer review, placeholder PDFs.
+        // LocalDevSeeder  — login accounts, a manuscript in peer review, placeholder PDFs
+        //                   (only for articles that have no real PDF yet).
         //
-        // Both are guarded by environment, not by a flag someone can forget to pass.
+        // DemoSeeder (six invented "Meridian" journals) is NO LONGER run by default: the
+        // site is JCD&MS only. It is kept for exercising the continuous-publication UI —
+        // run it explicitly with `php artisan db:seed --class=DemoSeeder`, never in production.
+        //
+        // Guarded by environment, not by a flag someone can forget to pass.
         if (! app()->environment('production')) {
             $this->call([
-                DemoSeeder::class,
                 LocalDevSeeder::class,
             ]);
         }

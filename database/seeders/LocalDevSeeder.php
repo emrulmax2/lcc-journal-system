@@ -231,6 +231,13 @@ class LocalDevSeeder extends Seeder
     private function attachPlaceholderPdfs(Journal $journal): void
     {
         foreach ($journal->articles()->get() as $article) {
+            // Never replace a real PDF. The back-catalogue import attaches the typeset
+            // articles; overwriting them with placeholders would put a "placeholder" PDF
+            // behind a published article's citation_pdf_url.
+            if ($article->pdf()->exists()) {
+                continue;
+            }
+
             $path = "articles/{$article->doi_suffix}.pdf";
 
             Storage::disk('private')->put($path, $this->placeholderPdf($article));

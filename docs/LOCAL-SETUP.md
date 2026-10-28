@@ -97,8 +97,9 @@ editorial decision, not a production one.
   including the corporate-author editorial (zero personal authors) and the 5-author
   protocol with Russell Kabir correctly at Anglia Ruskin. ORCIDs only where they genuinely
   exist; none are invented. `doi_prefix` and `issn_online` are deliberately **NULL**.
-- **Six fictional "Meridian" journals** (`DemoSeeder`) — invented content so the public UI
-  has something to render. **Never runs in production.**
+- **Six fictional "Meridian" journals** (`DemoSeeder`) — no longer seeded by default; the
+  site is JCD&MS only. Run `php artisan db:seed --class=DemoSeeder` if you need invented
+  multi-journal content locally. **Never in production.**
 - **Login accounts + a manuscript in peer review** (`LocalDevSeeder`). **Never runs in
   production.**
 

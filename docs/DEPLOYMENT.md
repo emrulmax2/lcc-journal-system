@@ -187,6 +187,17 @@ php artisan config:cache && php artisan route:cache && php artisan view:cache
 php artisan storage:link
 ```
 
+**The print back-catalogue** (Vol 5 No 1 2017 → Vol 10 No 2 2026) is loaded from the converted
+archive with two commands, never by a seeder:
+
+```bash
+php artisan journal:import-archive ~/jcdms-archive    # everything as drafts (--dry-run first)
+php artisan journal:publish-archive ~/jcdms-archive   # publishes on each issue's ORIGINAL date
+```
+
+Dates come from `publication_date` in each archive `issue.json`; an issue without one is refused,
+so nothing is ever published with today's date. Both are safe to re-run.
+
 ---
 
 ## 6. Keeping the SSR process alive

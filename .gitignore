@@ -1,6 +1,10 @@
 # Claude Code
 .claude/
 
+# Other AI coding agents (local skills and instruction files)
+.agents/
+AGENTS.md
+
 # Dependencies
 node_modules/
 /vendor
