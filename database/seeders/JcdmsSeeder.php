@@ -89,10 +89,13 @@ class JcdmsSeeder extends Seeder
             ['year' => 2026],
         );
 
-        // Issue 1 is published but has no article records in the source system — its
-        // content predates this platform. It exists so that Issue 2's numbering and the
-        // volume's archive are correct. Do not "fix" the empty article list.
-        Issue::updateOrCreate(
+        // firstOrCreate, not updateOrCreate: once an issue exists its date and status belong
+        // to the editors (and to journal:publish-archive). Re-seeding must never move a
+        // publication date or flip a published issue back to draft.
+        //
+        // Issue 1's articles come from the print archive (journal:import-archive), not
+        // from this seeder.
+        Issue::firstOrCreate(
             ['volume_id' => $volume->id, 'number' => 1],
             [
                 'season' => 'Autumn 2025',
@@ -101,7 +104,7 @@ class JcdmsSeeder extends Seeder
             ],
         );
 
-        $issue2 = Issue::updateOrCreate(
+        $issue2 = Issue::firstOrCreate(
             ['volume_id' => $volume->id, 'number' => 2],
             [
                 'season' => 'Spring 2026',
@@ -119,6 +122,13 @@ class JcdmsSeeder extends Seeder
 
     private function seedArticle(Journal $journal, Issue $issue, JournalSection $section, array $row): void
     {
+        // A published article is the permanent record. Re-seeding would otherwise reset it
+        // to draft and wipe its publication date — silently unpublishing it.
+        $existing = Article::where('journal_id', $journal->id)->where('slug', $row['slug'])->first();
+        if ($existing?->isFrozen()) {
+            return;
+        }
+
         $article = Article::updateOrCreate(
             ['journal_id' => $journal->id, 'slug' => $row['slug']],
             [
