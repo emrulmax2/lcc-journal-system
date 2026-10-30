@@ -40,7 +40,12 @@ class ArticleResource extends JsonResource
             'doi' => $this->doi(),
             'doiUrl' => $this->doiUrl(),
             'views' => $this->views_count,
-            'citations' => $this->citations_count,
+            // NULL — shown as "—" — until the article has a DOI. Nothing on this site can
+            // count citations: they come from citation indexes (Crossref Cited-by, OpenAlex),
+            // which can only track an article by its DOI. Printing "0" before then claims
+            // that nobody has cited the paper, which is not something we know. When DOIs go
+            // live, a scheduled sync must fill citations_count from one of those indexes.
+            'citations' => $this->doi() !== null ? $this->citations_count : null,
             'photo' => $this->photo_key,
             'thumbnail' => $this->thumbnail(),
             'abstract' => $this->abstract,

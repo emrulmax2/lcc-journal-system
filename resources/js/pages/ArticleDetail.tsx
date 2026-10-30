@@ -114,6 +114,8 @@ export default function ArticleDetail({ article, citations, related, meta }: Pro
     ...(article.references.length > 0 ? [{ id: 'references', text: 'References', level: 2 }] : []),
   ]
   const activeId = useActiveSection(sections.map((s) => s.id))
+  const railRef = useRef<HTMLElement>(null)
+  const railTop = useStickyTop(railRef)
 
   const publishedLabel = article.date
     ? `Published ${formatDate(article.date)}`
@@ -327,7 +329,7 @@ export default function ArticleDetail({ article, citations, related, meta }: Pro
           </div>
         </header>
 
-        <div className="container-page grid grid-cols-1 gap-12 py-12 lg:grid-cols-[minmax(0,1fr)_288px] xl:gap-16">
+        <div className="container-page grid grid-cols-1 gap-12 py-12 lg:grid-cols-[minmax(0,48rem)_288px]">
           <div className="min-w-0">
             {/* Small screens: the contents fold up above the text (the rail is beside it on large). */}
             {sections.length > 2 && (
@@ -362,7 +364,7 @@ export default function ArticleDetail({ article, citations, related, meta }: Pro
             {(article.abstract || article.keywords.length > 0) && (
               <section
                 id="abstract"
-                className="max-w-[72ch] scroll-mt-28 rounded-r-xl border-l-4 border-brand-700 bg-brand-50/70 px-6 py-6 sm:px-7"
+                className="scroll-mt-28 rounded-r-xl border-l-4 border-brand-700 bg-brand-50/70 px-6 py-6 sm:px-7"
               >
                 {article.abstract && (
                   <>
@@ -416,7 +418,7 @@ export default function ArticleDetail({ article, citations, related, meta }: Pro
                 "Authors" heading over nothing reads as a bug, so the whole block only
                 exists when there is something to put in it. */}
             {hasAuthorDetails ? (
-              <section id="authors" className="mt-12 max-w-[72ch] scroll-mt-28 border-t border-ink-200 pt-8">
+              <section id="authors" className="mt-12 scroll-mt-28 border-t border-ink-200 pt-8">
                 <h2 className="font-serif text-[1.65rem] text-ink-900">
                   {article.authorDetails.length === 1 ? 'Author' : 'Authors'}
                 </h2>
@@ -451,7 +453,7 @@ export default function ArticleDetail({ article, citations, related, meta }: Pro
                 </ul>
               </section>
             ) : article.corporateAuthor ? (
-              <section id="authors" className="mt-12 max-w-[72ch] scroll-mt-28 border-t border-ink-200 pt-8">
+              <section id="authors" className="mt-12 scroll-mt-28 border-t border-ink-200 pt-8">
                 <h2 className="font-serif text-[1.65rem] text-ink-900">Author</h2>
                 <p className="mt-4 font-medium text-ink-900">{article.corporateAuthor}</p>
               </section>
@@ -459,7 +461,7 @@ export default function ArticleDetail({ article, citations, related, meta }: Pro
 
             {/* -------------------------- References -------------------------- */}
             {article.references.length > 0 && (
-              <section id="references" className="mt-12 max-w-[72ch] scroll-mt-28 border-t border-ink-200 pt-8">
+              <section id="references" className="mt-12 scroll-mt-28 border-t border-ink-200 pt-8">
                 <h2 className="font-serif text-[1.65rem] text-ink-900">References</h2>
                 <ol className="mt-5 list-decimal space-y-3 pl-6 marker:text-ink-500">
                   {article.references.map((r) => (
@@ -479,7 +481,7 @@ export default function ArticleDetail({ article, citations, related, meta }: Pro
               </section>
             )}
             {related.length > 0 && (
-              <div className="card mt-12 max-w-[72ch] p-6">
+              <div className="card mt-12 p-6">
                 <h2 className="font-serif text-lg">More from this journal</h2>
                 <ul className="mt-4 grid gap-4 sm:grid-cols-2">
                   {related.map((r) => (
@@ -500,7 +502,10 @@ export default function ArticleDetail({ article, citations, related, meta }: Pro
           </div>
 
           {/* -------------------- Rail: contents, then metrics -------------------- */}
-          <aside className="space-y-6 lg:sticky lg:top-24 lg:max-h-[calc(100vh-7rem)] lg:self-start lg:overflow-y-auto lg:pb-2 lg:[scrollbar-width:thin]">
+          {/* No inner scrollbar. The rail is as tall as its content; useStickyTop pins it at
+              the top when it fits the window, and otherwise lets it scroll with the page
+              until its bottom (the metrics) is in view, then pins it there. */}
+          <aside ref={railRef} style={{ top: railTop }} className="space-y-6 lg:sticky lg:self-start">
             {sections.length > 2 && (
               <nav aria-label="On this page" className="hidden lg:block">
                 <p className="text-xs font-semibold uppercase tracking-[0.08em] text-brand-800">On this page</p>
@@ -510,26 +515,37 @@ export default function ArticleDetail({ article, citations, related, meta }: Pro
               </nav>
             )}
 
-            <div id="metrics" className="card p-6">
+            <div id="metrics" className="card p-5">
               <h2 className="font-serif text-lg">Article metrics</h2>
-              <dl className="mt-5 space-y-5">
+              <dl className="mt-4 grid grid-cols-2 gap-4">
                 <div>
                   <dt className="flex items-center gap-2 text-xs uppercase tracking-wide text-ink-500">
                     <Users className="h-3.5 w-3.5" aria-hidden="true" />
                     Views &amp; downloads
                   </dt>
-                  <dd className="mt-1 font-serif text-3xl text-ink-900">{formatNumber(article.views)}</dd>
+                  <dd className="mt-1 font-serif text-2xl text-ink-900">{formatNumber(article.views)}</dd>
                 </div>
                 <div>
                   <dt className="flex items-center gap-2 text-xs uppercase tracking-wide text-ink-500">
                     <Quote className="h-3.5 w-3.5" aria-hidden="true" />
                     Citations
                   </dt>
-                  <dd className="mt-1 font-serif text-3xl text-ink-900">{formatNumber(article.citations)}</dd>
+                  {article.citations === null ? (
+                    <dd className="mt-1">
+                      <span className="font-serif text-2xl text-ink-900" aria-label="Not yet tracked">
+                        —
+                      </span>
+                      <span className="mt-0.5 block text-[11px] leading-snug text-ink-500">
+                        Tracked once the article has a DOI
+                      </span>
+                    </dd>
+                  ) : (
+                    <dd className="mt-1 font-serif text-2xl text-ink-900">{formatNumber(article.citations)}</dd>
+                  )}
                 </div>
               </dl>
 
-              <div className="mt-6 border-t border-ink-200 pt-5">
+              <div className="mt-4 border-t border-ink-200 pt-4">
                 <p className="text-xs uppercase tracking-wide text-ink-500">Licence</p>
                 {article.license ? (
                   <p className="mt-1 text-sm text-ink-700">
@@ -591,10 +607,46 @@ function useActiveSection(ids: string[]): string | null {
   return active
 }
 
+/** Clear of the sticky navbar — the same 6rem the rail used as `top-24`. */
+const RAIL_TOP = 96
+/** Breathing room below a rail taller than the window. */
+const RAIL_BOTTOM_GAP = 24
+
+/**
+ * The `top` for a sticky side rail WITHOUT an inner scrollbar.
+ *
+ * A rail that fits the window sticks at RAIL_TOP. A taller one gets a NEGATIVE top — the
+ * window height minus its own height — so it scrolls along with the page until its bottom
+ * is on screen, and sticks there: every part of it is reachable by scrolling the page,
+ * and nothing needs a scrollbar of its own. Re-measured whenever the rail or the window
+ * changes size. SSR renders RAIL_TOP; the browser corrects it on mount.
+ */
+function useStickyTop(ref: React.RefObject<HTMLElement | null>): number {
+  const [top, setTop] = useState(RAIL_TOP)
+
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+
+    const update = () => setTop(Math.min(RAIL_TOP, window.innerHeight - el.offsetHeight - RAIL_BOTTOM_GAP))
+    update()
+
+    const observer = new ResizeObserver(update)
+    observer.observe(el)
+    window.addEventListener('resize', update)
+    return () => {
+      observer.disconnect()
+      window.removeEventListener('resize', update)
+    }
+  }, [ref])
+
+  return top
+}
+
 /** The contents list: top-level sections, with their sub-sections indented beneath. */
 function TocList({ sections, activeId }: { sections: TocEntry[]; activeId: string | null }) {
   return (
-    <ol className="space-y-1 border-l border-ink-200">
+    <ol className="space-y-0.5 border-l border-ink-200">
       {sections.map((s) => {
         const active = s.id === activeId
         return (
@@ -602,7 +654,7 @@ function TocList({ sections, activeId }: { sections: TocEntry[]; activeId: strin
             <a
               href={`#${s.id}`}
               aria-current={active ? 'location' : undefined}
-              className={`-ml-px block border-l-2 py-1 leading-snug transition-colors duration-200 ${
+              className={`-ml-px block border-l-2 py-[3px] leading-snug transition-colors duration-200 ${
                 s.level >= 3 ? 'pl-6 text-[13px]' : 'pl-3 text-sm'
               } ${
                 active
