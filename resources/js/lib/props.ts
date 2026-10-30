@@ -264,7 +264,8 @@ export type Article = {
   doi: string | null
   doiUrl: string | null
   views: number
-  citations: number
+  /** NULL ("—") until the article has a DOI: citation indexes track articles by DOI. */
+  citations: number | null
   photo: PhotoKey | null
   /** First-page preview, or the issue cover. Never a stock photo. */
   thumbnail?: ArticleThumbnail | null

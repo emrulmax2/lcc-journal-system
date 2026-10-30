@@ -51,7 +51,8 @@ export type ArticleCardData = {
   printIssue?: PrintIssue | null
   doi: string | null
   views: number
-  citations: number
+  /** NULL until the article has a DOI — the card then shows no citation figure at all. */
+  citations: number | null
   photo: PhotoKey | null
   thumbnail?: ArticleThumbnail | null
   abstract: string
@@ -347,10 +348,14 @@ export function ArticleCard({ article }: { article: ArticleCardData }) {
               <Users className="h-3.5 w-3.5 text-ink-500" aria-hidden="true" />
               {formatNumber(article.views)} views
             </span>
-            <span className="inline-flex items-center gap-1.5">
-              <Quote className="h-3.5 w-3.5 text-ink-500" aria-hidden="true" />
-              {formatNumber(article.citations)} citations
-            </span>
+            {/* Not tracked until the article has a DOI. "0 citations" would claim nobody
+                has cited it, which we do not know — so the card simply leaves it out. */}
+            {article.citations !== null && (
+              <span className="inline-flex items-center gap-1.5">
+                <Quote className="h-3.5 w-3.5 text-ink-500" aria-hidden="true" />
+                {formatNumber(article.citations)} citations
+              </span>
+            )}
           </div>
         </div>
       </Link>
