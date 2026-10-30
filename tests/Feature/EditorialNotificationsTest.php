@@ -51,7 +51,7 @@ it('emails a receipt to the author when a manuscript is submitted', function () 
     $this->post('/submit', [
         'journal' => $this->journal->slug,
         'title' => 'Thermal refugia revisited',
-        'abstract' => 'A sufficiently long abstract to clear the forty-character minimum the wizard enforces.',
+        'abstract' => 'A study of thermal refugia across three reef systems, and what they imply for resilience. We surveyed coral cover over five years, compared sites under repeated heat stress, and found that shaded refugia recovered faster than exposed reef flats.',
         'authors' => [
             ['name' => 'Jane Doe', 'email' => 'jane@example.edu', 'corresponding' => true],
         ],

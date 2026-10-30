@@ -134,7 +134,9 @@ function Abstract({ submission }: { submission: EditorSubmissionDetail }) {
   return (
     <Panel title="Abstract">
       {submission.abstract ? (
-        <p className="whitespace-pre-line text-sm leading-relaxed text-ink-800">
+        // break-words: an author can paste a URL or an unbroken string, and it must wrap
+        // inside the panel rather than push the whole page sideways.
+        <p className="whitespace-pre-line break-words text-sm leading-relaxed text-ink-800 [overflow-wrap:anywhere]">
           {submission.abstract}
         </p>
       ) : (

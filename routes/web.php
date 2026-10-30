@@ -153,9 +153,15 @@ Route::post('/logout', [LoginController::class, 'destroy'])
 
 Route::get('/submit', [SubmissionController::class, 'create'])->name('submit');
 Route::post('/submit', [SubmissionController::class, 'store'])
-    ->middleware('throttle:20,60')   // a public form that stores files — rate-limit it
+    // A public form that stores files, open to guests. A real author submits once; six an
+    // hour per visitor is generous for them and a hard ceiling for anyone flooding the queue.
+    ->middleware('throttle:6,60')
     ->name('submit.store');
-Route::post('/submit/draft', [SubmissionController::class, 'storeDraft'])->name('submit.draft');
+// Saved on every wizard step, so the limit is per minute — plenty for a person clicking
+// Continue, not for a script.
+Route::post('/submit/draft', [SubmissionController::class, 'storeDraft'])
+    ->middleware('throttle:60,1')
+    ->name('submit.draft');
 
 /*
 |--------------------------------------------------------------------------

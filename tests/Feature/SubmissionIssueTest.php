@@ -48,7 +48,7 @@ function issueSubmission(array $overrides = []): array
         'journal' => 'jcdms',
         'title' => 'Coral refugia under repeated thermal stress',
         'type' => 'Research Article',
-        'abstract' => 'A study of thermal refugia across three reef systems, and what they imply.',
+        'abstract' => 'A study of thermal refugia across three reef systems, and what they imply for resilience. We surveyed coral cover over five years, compared sites under repeated heat stress, and found that shaded refugia recovered faster than exposed reef flats.',
         'file' => UploadedFile::fake()->create('manuscript.pdf', 120, 'application/pdf'),
         'authors' => [['name' => 'Ada Byron King', 'email' => 'ada@example.edu', 'corresponding' => true]],
         'ethics' => true,

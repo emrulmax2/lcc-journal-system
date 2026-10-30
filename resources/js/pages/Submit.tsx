@@ -117,6 +117,80 @@ const ACCEPTED_FILES = '.pdf,.docx,.tex,.zip'
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
+/**
+ * The limits the server enforces (SubmissionController + App\Rules\SensibleText), shown to
+ * the author while they type. Keep the two in step: the server is the one that cannot be
+ * bypassed; this is the one that tells an honest author before they press Continue.
+ */
+export const TEXT_LIMITS = {
+  titleMinChars: 10,
+  titleMaxChars: 300,
+  titleMinWords: 3,
+  titleMaxWords: 40,
+  abstractMinWords: 30,
+  abstractMaxWords: 500,
+  abstractMaxChars: 5000,
+  maxKeywords: 8,
+  keywordMaxChars: 60,
+  nameMaxChars: 100,
+  affiliationMaxChars: 255,
+  fundingMaxChars: 2000,
+  maxWord: 50,
+  maxLink: 200,
+  maxRepeats: 8,
+} as const
+
+/** Letters in any script (with accents), spaces, hyphens, apostrophes, full stops. */
+const NAME_RE = /^[\p{L}\p{M}][\p{L}\p{M}\s.'’\-]*$/u
+const LINK_RE = /^(https?:\/\/|doi:|10\.\d{4,9}\/)/i
+const REPEAT_RE = new RegExp(`([^\\d\\s]{1,4}?)\\1{${TEXT_LIMITS.maxRepeats - 1},}`, 'u')
+
+export function wordCount(text: string): number {
+  return text.trim() === '' ? 0 : text.trim().split(/\s+/u).length
+}
+
+/**
+ * What is wrong with a piece of text, as a sentence for the author — or null. Rejects one
+ * giant unbroken "word", keyboard-mash ("fsfsfsfs…") and implausible word counts.
+ */
+export function textProblem(text: string, field: string, minWords = 0, maxWords = 0): string | null {
+  const trimmed = text.trim()
+  if (trimmed === '') return null
+
+  for (const word of trimmed.split(/\s+/u)) {
+    const isLink = LINK_RE.test(word)
+    const length = [...word].length
+    if (length > (isLink ? TEXT_LIMITS.maxLink : TEXT_LIMITS.maxWord)) {
+      return isLink
+        ? `${field} contains a link longer than ${TEXT_LIMITS.maxLink} characters.`
+        : `${field} contains a word of ${length} characters with no spaces. Words can be at most ${TEXT_LIMITS.maxWord} characters.`
+    }
+  }
+
+  if (REPEAT_RE.test(trimmed)) {
+    return `${field} contains the same characters repeated over and over. Please enter real text.`
+  }
+
+  const count = wordCount(trimmed)
+  if (minWords > 0 && count < minWords) return `${field} must be at least ${minWords} words (it is ${count}).`
+  if (maxWords > 0 && count > maxWords) return `${field} can be at most ${maxWords} words (it is ${count}).`
+
+  return null
+}
+
+function keywordsProblem(keywords: string): string | null {
+  const list = keywords.split(',').map((k) => k.trim()).filter(Boolean)
+  if (list.length > TEXT_LIMITS.maxKeywords) return `Enter at most ${TEXT_LIMITS.maxKeywords} keywords.`
+  for (const keyword of list) {
+    if ([...keyword].length > TEXT_LIMITS.keywordMaxChars) {
+      return `The keyword “${keyword.slice(0, 30)}…” is too long — at most ${TEXT_LIMITS.keywordMaxChars} characters.`
+    }
+    const problem = textProblem(keyword, 'A keyword', 0, 6)
+    if (problem) return problem
+  }
+  return null
+}
+
 type Errors = Record<string, string>
 
 type Form = {
@@ -211,10 +285,27 @@ function errorsForStep(step: StepIndex, form: Form): Errors {
   }
 
   if (step === 1) {
-    if (!form.title.trim()) e.title = 'Enter the manuscript title.'
-    if (form.abstract.trim().length < 40) {
-      e.abstract = 'The abstract must be at least 40 characters.'
+    const title = form.title.trim()
+    if (!title) e.title = 'Enter the manuscript title.'
+    else if (title.length < TEXT_LIMITS.titleMinChars) e.title = 'The title is too short — at least 10 characters.'
+    else {
+      const problem = textProblem(title, 'The title', TEXT_LIMITS.titleMinWords, TEXT_LIMITS.titleMaxWords)
+      if (problem) e.title = problem
     }
+
+    if (!form.abstract.trim()) e.abstract = 'Enter the abstract.'
+    else {
+      const problem = textProblem(
+        form.abstract,
+        'The abstract',
+        TEXT_LIMITS.abstractMinWords,
+        TEXT_LIMITS.abstractMaxWords,
+      )
+      if (problem) e.abstract = problem
+    }
+
+    const keywords = keywordsProblem(form.keywords)
+    if (keywords) e.keywords = keywords
     if (!form.file) {
       e.file = form.fileName
         ? `Re-attach “${form.fileName}”. A saved draft keeps the file's name, not the file itself.`
@@ -225,9 +316,17 @@ function errorsForStep(step: StepIndex, form: Form): Errors {
   if (step === 2) {
     form.authors.forEach((author, i) => {
       const who = i === 0 ? 'the corresponding author' : `co-author ${i}`
-      if (!author.name.trim()) {
+      const name = author.name.trim()
+      if (!name) {
         e[`authors.${i}.name`] = `Enter a name for ${who}.`
+      } else if (!NAME_RE.test(name)) {
+        e[`authors.${i}.name`] = 'A name can contain only letters, spaces, hyphens, apostrophes and full stops.'
+      } else {
+        const problem = textProblem(name, 'A name', 0, 8)
+        if (problem) e[`authors.${i}.name`] = problem
       }
+      const affiliation = textProblem(author.affiliation, 'The affiliation', 0, 40)
+      if (affiliation) e[`authors.${i}.affiliation`] = affiliation
       if (!EMAIL_RE.test(author.email.trim())) {
         e[`authors.${i}.email`] = `Enter a valid email for ${who}.`
       }
@@ -235,6 +334,8 @@ function errorsForStep(step: StepIndex, form: Form): Errors {
   }
 
   if (step === 3) {
+    const funding = textProblem(form.funding, 'The funding statement', 0, 300)
+    if (funding) e.funding = funding
     if (!form.ethics) e.ethics = 'Confirm the ethics statement to continue.'
     if (!form.conflicts) e.conflicts = 'Declare competing interests to continue.'
   }
@@ -247,11 +348,12 @@ function stepForField(key: string): StepIndex {
   if (key === 'journal' || key === 'issue') return 0
   if (key.startsWith('authors')) return 2
   if (['title', 'type', 'abstract', 'keywords', 'file'].includes(key)) return 1
+  if (key === 'funding') return 3
   return 3
 }
 
-const AUTHOR_ERROR_RE = /^authors\.\d+\.(name|email)$/
-const FIELD_KEYS = ['journal', 'issue', 'title', 'abstract', 'file', 'ethics', 'conflicts']
+const AUTHOR_ERROR_RE = /^authors\.\d+\.(name|email|affiliation)$/
+const FIELD_KEYS = ['journal', 'issue', 'title', 'abstract', 'keywords', 'file', 'funding', 'ethics', 'conflicts']
 
 /** True when the error has a field on screen to attach itself to. */
 function isBound(key: string): boolean {
@@ -920,6 +1022,20 @@ function IssueChoice({
   )
 }
 
+/** "124 words" under the abstract — turns to a warning outside the allowed range. */
+function AbstractCount({ text }: { text: string }) {
+  const count = wordCount(text)
+  const outside = count > 0 && (count < TEXT_LIMITS.abstractMinWords || count > TEXT_LIMITS.abstractMaxWords)
+
+  return (
+    <p id="abstract-count" aria-live="polite" className={`mt-1.5 text-xs ${outside ? 'text-danger-700' : 'text-ink-500'}`}>
+      {formatNumber(count)} {count === 1 ? 'word' : 'words'}
+      {outside && count < TEXT_LIMITS.abstractMinWords && ` — at least ${TEXT_LIMITS.abstractMinWords} needed`}
+      {outside && count > TEXT_LIMITS.abstractMaxWords && ` — at most ${TEXT_LIMITS.abstractMaxWords} allowed`}
+    </p>
+  )
+}
+
 function StepManuscript({
   form,
   update,
@@ -942,6 +1058,7 @@ function StepManuscript({
           value={form.title}
           onChange={(e) => update('title', e.target.value)}
           aria-invalid={Boolean(errors.title)}
+          maxLength={TEXT_LIMITS.titleMaxChars}
           placeholder="A concise, specific title"
           className={inputClass(errors.title)}
         />
@@ -966,7 +1083,7 @@ function StepManuscript({
         id="abstract"
         label="Abstract"
         error={errors.abstract}
-        hint={`${formatNumber(form.abstract.length)} characters — aim for 150 to 350 words`}
+        hint={`${TEXT_LIMITS.abstractMinWords} to ${TEXT_LIMITS.abstractMaxWords} words — most are 150 to 350`}
       >
         <textarea
           id="abstract"
@@ -974,6 +1091,8 @@ function StepManuscript({
           value={form.abstract}
           onChange={(e) => update('abstract', e.target.value)}
           aria-invalid={Boolean(errors.abstract)}
+          maxLength={TEXT_LIMITS.abstractMaxChars}
+          aria-describedby="abstract-count"
           placeholder="Background, methods, results and what they mean."
           className={`w-full rounded-2xl border bg-white p-4 text-base leading-relaxed text-ink-900
                       placeholder:text-ink-500 transition-colors duration-200 ${
@@ -982,15 +1101,18 @@ function StepManuscript({
                           : 'border-ink-300 hover:border-ink-400 focus:border-brand-600'
                       }`}
         />
+        <AbstractCount text={form.abstract} />
       </Field>
 
-      <Field id="keywords" label="Keywords" hint="Comma separated, up to eight">
+      <Field id="keywords" label="Keywords" hint="Comma separated, up to eight" error={errors.keywords}>
         <input
           id="keywords"
           value={form.keywords}
           onChange={(e) => update('keywords', e.target.value)}
+          aria-invalid={Boolean(errors.keywords)}
+          maxLength={500}
           placeholder="coral bleaching, refugia, reef resilience"
-          className={inputClass()}
+          className={inputClass(errors.keywords)}
         />
       </Field>
 
@@ -1104,6 +1226,7 @@ function StepAuthors({
                 value={author.name}
                 onChange={(e) => setAuthor(i, 'name', e.target.value)}
                 aria-invalid={Boolean(errors[`authors.${i}.name`])}
+                maxLength={TEXT_LIMITS.nameMaxChars}
                 autoComplete="name"
                 className={inputClass(errors[`authors.${i}.name`])}
               />
@@ -1123,13 +1246,15 @@ function StepAuthors({
           </div>
 
           <div className="mt-4">
-            <Field id={`aff-${i}`} label="Affiliation">
+            <Field id={`aff-${i}`} label="Affiliation" error={errors[`authors.${i}.affiliation`]}>
               <input
                 id={`aff-${i}`}
                 value={author.affiliation}
                 onChange={(e) => setAuthor(i, 'affiliation', e.target.value)}
+                aria-invalid={Boolean(errors[`authors.${i}.affiliation`])}
+                maxLength={TEXT_LIMITS.affiliationMaxChars}
                 placeholder="Department, institution, country"
-                className={inputClass()}
+                className={inputClass(errors[`authors.${i}.affiliation`])}
               />
             </Field>
           </div>
@@ -1178,15 +1303,19 @@ function StepDeclarations({ form, update, errors }: StepProps) {
         </p>
       </div>
 
-      <Field id="funding" label="Funding statement" hint="Grant numbers and funders, if any">
+      <Field id="funding" label="Funding statement" hint="Grant numbers and funders, if any" error={errors.funding}>
         <textarea
           id="funding"
           rows={3}
           value={form.funding}
           onChange={(e) => update('funding', e.target.value)}
+          aria-invalid={Boolean(errors.funding)}
+          maxLength={TEXT_LIMITS.fundingMaxChars}
           placeholder="This work was supported by…"
-          className="w-full rounded-2xl border border-ink-300 p-4 text-base leading-relaxed
-                     placeholder:text-ink-500 transition-colors duration-200 hover:border-ink-400 focus:border-brand-600"
+          className={`w-full rounded-2xl border p-4 text-base leading-relaxed placeholder:text-ink-500
+                      transition-colors duration-200 ${
+                        errors.funding ? 'border-danger-600' : 'border-ink-300 hover:border-ink-400 focus:border-brand-600'
+                      }`}
         />
       </Field>
 
