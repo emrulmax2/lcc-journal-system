@@ -125,7 +125,7 @@ describe('submitting', function () {
             'journal' => 'jcdms',
             'title' => 'Coral refugia under repeated thermal stress',
             'type' => 'Research Article',
-            'abstract' => 'A study of thermal refugia across three reef systems, and what they imply.',
+            'abstract' => 'A study of thermal refugia across three reef systems, and what they imply for resilience. We surveyed coral cover over five years, compared sites under repeated heat stress, and found that shaded refugia recovered faster than exposed reef flats.',
             'keywords' => 'coral, refugia',
             'file' => UploadedFile::fake()->create('manuscript.pdf', 120, 'application/pdf'),
             'authors' => [
@@ -172,7 +172,7 @@ describe('submitting', function () {
             'journal' => 'jcdms',
             'title' => 'A manuscript from someone with no account',
             'type' => 'Research Article',
-            'abstract' => 'A guest submission that must reach the editorial office without a login.',
+            'abstract' => 'A guest submission that must reach the editorial office without a login. It describes a mixed-methods study of student retention at an alternative provider, combining survey data with interviews, and sets out what the findings mean for policy.',
             'keywords' => 'open, access',
             'file' => UploadedFile::fake()->create('manuscript.pdf', 80, 'application/pdf'),
             'authors' => [
@@ -199,15 +199,15 @@ describe('submitting', function () {
     it('flashes a receipt the success screen can print, and invents nothing', function () {
         $this->actingAs($this->author)->post('/submit', [
             'journal' => 'jcdms',
-            'title' => 'Coral refugia',
-            'abstract' => 'A study of thermal refugia across three reef systems, and what they imply.',
+            'title' => 'Coral refugia under stress',
+            'abstract' => 'A study of thermal refugia across three reef systems, and what they imply for resilience. We surveyed coral cover over five years, compared sites under repeated heat stress, and found that shaded refugia recovered faster than exposed reef flats.',
             'file' => UploadedFile::fake()->create('manuscript.pdf', 10, 'application/pdf'),
             'authors' => [['name' => 'Ada King', 'email' => 'ada@example.edu']],
             'ethics' => true,
             'conflicts' => true,
         ])->assertSessionHas('submission', fn (array $receipt): bool => $receipt['reference'] === Submission::sole()->reference
             && $receipt['journal'] === $this->journal->title
-            && $receipt['title'] === 'Coral refugia'
+            && $receipt['title'] === 'Coral refugia under stress'
             // NULL, not a made-up "51 days": this journal has never decided anything.
             && $receipt['medianDaysToDecision'] === null
         );
@@ -216,7 +216,7 @@ describe('submitting', function () {
     it('turns the author\'s draft into the submission instead of orphaning it', function () {
         $this->actingAs($this->author)->post('/submit/draft', [
             'journal' => 'jcdms',
-            'title' => 'Coral refugia',
+            'title' => 'Coral refugia under stress',
             'step' => 4,
         ]);
 
@@ -231,8 +231,8 @@ describe('submitting', function () {
         $this->actingAs($this->author)
             ->post('/submit', [
                 'journal' => 'jcdms',
-                'title' => 'Coral refugia',
-                'abstract' => 'A study of thermal refugia across three reef systems, and what they imply.',
+                'title' => 'Coral refugia under stress',
+                'abstract' => 'A study of thermal refugia across three reef systems, and what they imply for resilience. We surveyed coral cover over five years, compared sites under repeated heat stress, and found that shaded refugia recovered faster than exposed reef flats.',
                 'file' => UploadedFile::fake()->create('manuscript.pdf', 10, 'application/pdf'),
                 'authors' => [['name' => '', 'email' => 'not-an-email']],
                 'ethics' => false,

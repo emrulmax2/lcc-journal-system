@@ -15,8 +15,10 @@ use App\Models\JournalSection;
 use App\Models\Submission;
 use App\Models\User;
 use App\Notifications\RevisionSubmittedNotification;
+use App\Rules\SensibleText;
 use App\Support\EditorialMetrics;
 use App\Support\EditorialRecipients;
+use Closure;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Mail;
@@ -41,6 +43,18 @@ use Inertia\Response;
  */
 final class SubmissionController extends Controller
 {
+    /** The limits the wizard also shows the author — keep in step with Submit.tsx TEXT_LIMITS. */
+    public const ABSTRACT_MIN_WORDS = 30;
+
+    public const ABSTRACT_MAX_WORDS = 500;
+
+    public const ABSTRACT_MAX_CHARS = 5000;
+
+    public const FUNDING_MAX_CHARS = 2000;
+
+    /** keywords() has always stored at most 8, so that is the limit the author is told. */
+    public const MAX_KEYWORDS = 8;
+
     public function create(Request $request): Response
     {
         return Inertia::render('Submit', [
@@ -70,7 +84,9 @@ final class SubmissionController extends Controller
             'journal' => ['nullable', 'string', 'exists:journals,slug'],
             'title' => ['nullable', 'string', 'max:500'],
             'type' => ['nullable', 'string', 'max:255'],
-            'abstract' => ['nullable', 'string'],
+            // Only CEILINGS here: a draft is half-typed by definition, so the content checks
+            // wait for the real submission — but nothing may park megabytes in a draft row.
+            'abstract' => ['nullable', 'string', 'max:'.self::ABSTRACT_MAX_CHARS],
             'keywords' => ['nullable', 'string', 'max:500'],
             'fileName' => ['nullable', 'string', 'max:255'],
             'authors' => ['nullable', 'array', 'max:50'],
@@ -78,7 +94,7 @@ final class SubmissionController extends Controller
             'authors.*.email' => ['nullable', 'string', 'max:255'],
             'authors.*.affiliation' => ['nullable', 'string', 'max:255'],
             'authors.*.corresponding' => ['nullable', 'boolean'],
-            'funding' => ['nullable', 'string'],
+            'funding' => ['nullable', 'string', 'max:'.self::FUNDING_MAX_CHARS],
             'ethics' => ['nullable', 'boolean'],
             'conflicts' => ['nullable', 'boolean'],
             'dataAvailable' => ['nullable', 'boolean'],
@@ -150,23 +166,38 @@ final class SubmissionController extends Controller
         // The error KEYS are part of the frontend contract: Submit.tsx maps 'journal' to
         // step 0, 'authors.*' to step 2, and so on, and jumps the author to the first step
         // that has one. Rename a key here and a server-side rejection becomes invisible.
+        //
+        // CONTENT CHECKS. The form is public — guests can submit — and what it collects is
+        // shown to editors and, once accepted, published. SensibleText rejects one giant
+        // unbroken "word", keyboard-mash ("fsfsfsfs…") and implausible word counts; the same
+        // limits run in the wizard (Submit.tsx → TEXT_LIMITS), so an honest author hears about
+        // them while typing and only a hand-crafted request ever meets them here.
         $data = $request->validate([
             'journal' => ['required', 'string', 'exists:journals,slug'],
-            'title' => ['required', 'string', 'max:500'],
+            'title' => ['required', 'string', 'min:10', 'max:300', new SensibleText('The title', minWords: 3, maxWords: 40)],
             'type' => ['nullable', 'string', 'max:255'],
-            'abstract' => ['required', 'string', 'min:40'],
-            'keywords' => ['nullable', 'string', 'max:500'],
+            'abstract' => [
+                'required', 'string', 'max:'.self::ABSTRACT_MAX_CHARS,
+                new SensibleText('The abstract', minWords: self::ABSTRACT_MIN_WORDS, maxWords: self::ABSTRACT_MAX_WORDS),
+            ],
+            'keywords' => ['nullable', 'string', 'max:500', $this->keywordsRule()],
 
             // The UI has always claimed 50 MB and 4 formats. This is what enforces them.
             'file' => ['required', 'file', 'max:51200', 'extensions:pdf,doc,docx,tex,zip'],
 
             'authors' => ['required', 'array', 'min:1', 'max:50'],
-            'authors.*.name' => ['required', 'string', 'max:255'],
+            // Letters (any script, with accents), spaces, hyphens, apostrophes and full stops:
+            // "Md Emrul Easir V", "Siobhán O'Brien-Papé", "Dr. A. Rahim". No digits, no symbols.
+            'authors.*.name' => [
+                'required', 'string', 'min:2', 'max:100',
+                "regex:/^[\\p{L}\\p{M}][\\p{L}\\p{M}\\s.'’\\-]*$/u",
+                new SensibleText('An author name', maxWords: 8),
+            ],
             'authors.*.email' => ['required', 'email', 'max:255'],
-            'authors.*.affiliation' => ['nullable', 'string', 'max:255'],
+            'authors.*.affiliation' => ['nullable', 'string', 'max:255', new SensibleText('An affiliation', maxWords: 40)],
             'authors.*.corresponding' => ['nullable', 'boolean'],
 
-            'funding' => ['nullable', 'string'],
+            'funding' => ['nullable', 'string', 'max:'.self::FUNDING_MAX_CHARS, new SensibleText('The funding statement', maxWords: 300)],
             'ethics' => ['accepted'],
             'conflicts' => ['accepted'],
             'dataAvailable' => ['nullable', 'boolean'],
@@ -176,6 +207,10 @@ final class SubmissionController extends Controller
             'conflicts.accepted' => 'Declare competing interests to continue.',
             'file.extensions' => 'Attach a PDF, DOCX, LaTeX source or ZIP archive.',
             'file.max' => 'That file is over the 50 MB limit — compress it, or attach the LaTeX source instead.',
+            'title.min' => 'The title is too short — at least 10 characters.',
+            'abstract.max' => 'The abstract is too long — at most '.self::ABSTRACT_MAX_CHARS.' characters.',
+            'authors.*.name.regex' => 'An author name can contain only letters, spaces, hyphens, apostrophes and full stops.',
+            'authors.*.name.min' => 'Enter the author’s full name.',
         ]);
 
         $journal = Journal::where('slug', $data['journal'])->firstOrFail();
@@ -227,7 +262,7 @@ final class SubmissionController extends Controller
 
         $data = $request->validate([
             'file' => ['required', 'file', 'max:51200', 'extensions:pdf,doc,docx,tex,zip'],
-            'note' => ['nullable', 'string', 'max:5000'],
+            'note' => ['nullable', 'string', 'max:5000', new SensibleText('The note', maxWords: 1000)],
         ], [
             'file.extensions' => 'Attach a PDF, DOCX, LaTeX source or ZIP archive.',
             'file.max' => 'That file is over the 50 MB limit — compress it, or attach the LaTeX source instead.',
@@ -294,6 +329,39 @@ final class SubmissionController extends Controller
             'cover' => $latest->coverMedia?->url,
             'articles' => (int) $latest->published_articles_count,
         ];
+    }
+
+    /**
+     * Keywords arrive as one comma-separated string. Each one is checked on its own: at most
+     * MAX_KEYWORDS of them, each at most 60 characters and 6 words, and each real text.
+     */
+    private function keywordsRule(): Closure
+    {
+        return function (string $attribute, mixed $value, Closure $fail): void {
+            // Split here rather than via keywords(), which silently keeps only the first 8 —
+            // the author should be told, not have the rest disappear.
+            $keywords = array_values(array_filter(array_map('trim', explode(',', is_string($value) ? $value : ''))));
+
+            if (count($keywords) > self::MAX_KEYWORDS) {
+                $fail('Enter at most '.self::MAX_KEYWORDS.' keywords.');
+
+                return;
+            }
+
+            foreach ($keywords as $keyword) {
+                if (mb_strlen($keyword) > 60) {
+                    $fail('The keyword “'.str($keyword)->limit(30).'” is too long — at most 60 characters.');
+
+                    return;
+                }
+
+                if ($problem = SensibleText::problem($keyword, 'A keyword', maxWords: 6)) {
+                    $fail($problem);
+
+                    return;
+                }
+            }
+        };
     }
 
     /** An unpublished issue of this journal, or null: never a published or foreign one. */
