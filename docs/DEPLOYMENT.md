@@ -198,6 +198,13 @@ php artisan journal:publish-archive ~/jcdms-archive   # publishes on each issue'
 Dates come from `publication_date` in each archive `issue.json`; an issue without one is refused,
 so nothing is ever published with today's date. Both are safe to re-run.
 
+**If a server ever received the demo journals** (DemoSeeder), remove them before importing:
+
+```bash
+php artisan journal:prune-journals --dry-run   # lists every journal except jcdms
+php artisan journal:prune-journals             # asks before deleting; refuses journals with submissions or issues
+```
+
 ---
 
 ## 6. Keeping the SSR process alive
