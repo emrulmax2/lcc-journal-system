@@ -231,4 +231,97 @@
   .prose-cms img {
     @apply max-w-full rounded-lg;
   }
+
+  /* ---------------------------------------------------------------------------
+   * An article's full text (ArticleBody → ArticleDetail). Long-form reading: a
+   * measure-limited column, serif section heads with a rule above each top-level
+   * one, figures framed on white, captions in italics, wide tables that scroll
+   * inside their own box. Headings carry ids for "On this page", so they stop
+   * clear of the sticky navbar when jumped to.
+   * ------------------------------------------------------------------------- */
+  .prose-article {
+    @apply max-w-[72ch] text-[1.0625rem] leading-[1.8] text-ink-800;
+    overflow-wrap: break-word;
+  }
+
+  .prose-article > * + * {
+    @apply mt-5;
+  }
+
+  .prose-article :is(h2, h3, h4) {
+    @apply scroll-mt-28 font-serif text-ink-900;
+  }
+
+  .prose-article h2 {
+    @apply mt-12 border-t border-ink-200 pt-8 text-[1.65rem] leading-snug;
+  }
+
+  .prose-article h3 {
+    @apply mt-9 text-xl leading-snug;
+  }
+
+  .prose-article h4 {
+    @apply mt-7 text-lg italic;
+  }
+
+  .prose-article a {
+    @apply text-brand-800 underline decoration-brand-300 underline-offset-4 transition-colors duration-200
+           hover:decoration-brand-700;
+  }
+
+  .prose-article strong {
+    @apply font-semibold text-ink-900;
+  }
+
+  .prose-article ul {
+    @apply list-disc space-y-2 pl-6;
+  }
+
+  .prose-article ol {
+    @apply list-decimal space-y-2 pl-6;
+  }
+
+  .prose-article li::marker {
+    @apply text-ink-500;
+  }
+
+  .prose-article blockquote {
+    @apply border-l-4 border-ink-200 pl-5 text-ink-700;
+  }
+
+  .prose-article img {
+    @apply mx-auto mt-8 block h-auto max-w-full rounded-lg border border-ink-200 bg-white p-2;
+  }
+
+  .prose-article p.caption {
+    @apply mt-2 text-center text-sm leading-relaxed text-ink-600;
+  }
+
+  .prose-article .table-wrap {
+    @apply my-6 overflow-x-auto rounded-lg border border-ink-200;
+  }
+
+  .prose-article table {
+    @apply w-full border-collapse text-left text-sm leading-relaxed;
+  }
+
+  .prose-article th {
+    @apply border-b border-ink-300 bg-ink-50 px-3 py-2 align-bottom font-semibold text-ink-900;
+  }
+
+  .prose-article td {
+    @apply border-b border-ink-200 px-3 py-2 align-top text-ink-700;
+  }
+
+  .prose-article tr:last-child td {
+    @apply border-b-0;
+  }
+
+  .prose-article hr {
+    @apply my-10 border-ink-200;
+  }
+
+  .prose-article code {
+    @apply rounded bg-ink-100 px-1.5 py-0.5 font-mono text-sm;
+  }
 }

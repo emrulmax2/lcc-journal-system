@@ -287,8 +287,17 @@ export type Reference = {
 }
 
 /** ArticleResource + the detail-only fields merged in by ArticleController::show(). */
+/** One entry in an article's "On this page" list — a section heading in the full text. */
+export type TocEntry = { id: string; text: string; level: number }
+
 export type ArticleDetail = Article & {
-  body: string | null
+  /**
+   * The full text, rendered to HTML on the server (ArticleBody: CommonMark with raw HTML
+   * escaped, so it is safe to set as HTML). Empty when the article has no full text.
+   */
+  bodyHtml: string
+  /** Section headings of the full text (h2, h3), in order, with their ids. */
+  toc: TocEntry[]
   pageRange: string | null
   volume: number | null
   issue: number | null

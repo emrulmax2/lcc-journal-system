@@ -13,7 +13,7 @@ use App\Models\Issue;
 use App\Models\Journal;
 use App\Models\JournalSection;
 use App\Services\Citations\CitationFormatter;
-use App\Services\Content\MarkdownRenderer;
+use App\Services\Content\ArticleBody;
 use App\Support\CitationMeta;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Builder;
@@ -182,7 +182,7 @@ class ArticleController extends Controller
      * The DOI landing page. Everything about the DOI programme depends on this method
      * returning full, machine-readable HTML to a client that runs no JavaScript.
      */
-    public function show(Request $request, Article $article): Response
+    public function show(Request $request, Article $article, ArticleBody $articleBody): Response
     {
         $article->load(['journal', 'authors', 'section', 'issue.volume', 'pdf', 'references', 'heroMedia']);
 
@@ -208,11 +208,18 @@ class ArticleController extends Controller
             ->limit(2)
             ->get();
 
+        // The full text as HTML, rendered HERE — so it is in the server-rendered page that
+        // Scholar reads — with an id on every section heading for the "On this page" list.
+        // It used to be sent as raw Markdown and split on blank lines in the browser, which
+        // printed "## Introduction" as text and could not show a table or a figure at all.
+        $body = $articleBody->render($article->body);
+
         return Inertia::render('ArticleDetail', [
             'article' => array_merge(
                 (new ArticleResource($article))->resolve($request),
                 [
-                    'body' => $article->body,
+                    'bodyHtml' => $body['html'],
+                    'toc' => $body['toc'],
                     'pageRange' => $article->pageRange(),
                     'volume' => $article->issue?->volume?->number,
                     'issue' => $article->issue?->number,
@@ -314,7 +321,7 @@ class ArticleController extends Controller
      * The same citation_* meta tags the landing page carries are emitted here too, and the
      * canonical link points back at the DOI landing page so this is not treated as a duplicate.
      */
-    public function html(Request $request, Article $article, MarkdownRenderer $markdown): View
+    public function html(Request $request, Article $article, ArticleBody $articleBody): View
     {
         $article->load(['journal', 'authors', 'section', 'issue.volume', 'references']);
 
@@ -333,7 +340,7 @@ class ArticleController extends Controller
 
         return view('articles.fulltext', [
             'article' => $article,
-            'bodyHtml' => $markdown->toHtml($article->body),
+            'bodyHtml' => $articleBody->render($article->body)['html'],
             'citationMeta' => CitationMeta::for($article),
             'canonical' => $article->landingUrl(),
             'indexable' => ! $isPreview,
