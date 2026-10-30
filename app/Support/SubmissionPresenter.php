@@ -116,6 +116,9 @@ final class SubmissionPresenter
             'section' => $submission->section?->name,
             'submittedAt' => $submission->submitted_at?->toIso8601String(),
 
+            // The author's preference, not a placement. NULL = "next available issue".
+            'targetIssue' => $submission->targetIssue?->labelWithSeason(),
+
             'authors' => $submission->authors->map(fn (SubmissionAuthor $author): array => [
                 'name' => $author->name,
                 'email' => $author->email,

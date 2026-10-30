@@ -7,6 +7,7 @@ namespace App\Http\Resources;
 use App\Models\Article;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
+use Illuminate\Support\Facades\Storage;
 
 /**
  * The shape the React pages expect. Derived from the frontend contract in
@@ -32,17 +33,42 @@ class ArticleResource extends JsonResource
             'journalSlug' => $this->whenLoaded('journal', fn () => $this->journal->slug),
             'type' => $this->whenLoaded('section', fn () => $this->section?->name),
             'date' => $this->published_at?->toDateString(),
+            // Which printed issue — "Vol 5, No 1". Only where the caller loaded issue.volume.
+            'printIssue' => $this->whenLoaded('issue', fn () => $this->issue?->relationLoaded('volume')
+                ? ['volume' => $this->issue->volume->number, 'number' => $this->issue->number, 'season' => $this->issue->season]
+                : null),
             'doi' => $this->doi(),
             'doiUrl' => $this->doiUrl(),
             'views' => $this->views_count,
             'citations' => $this->citations_count,
             'photo' => $this->photo_key,
+            'thumbnail' => $this->thumbnail(),
             'abstract' => $this->abstract,
             'keywords' => $this->keywords ?? [],
         ];
     }
 
     /** @return list<string> */
+    /**
+     * The card image: a preview of the article's own first page, or else the cover of the
+     * issue it was printed in (when the caller loaded issue.coverMedia). Never a stock photo
+     * — on a research paper that would misrepresent the work.
+     *
+     * @return array{url: string, kind: 'page'|'cover'}|null
+     */
+    protected function thumbnail(): ?array
+    {
+        if (filled($this->thumbnail_path)) {
+            return ['url' => Storage::disk('public')->url($this->thumbnail_path), 'kind' => 'page'];
+        }
+
+        if ($this->relationLoaded('issue') && $this->issue?->relationLoaded('coverMedia') && $this->issue->coverMedia) {
+            return ['url' => $this->issue->coverMedia->url, 'kind' => 'cover'];
+        }
+
+        return null;
+    }
+
     protected function displayAuthors(): array
     {
         // A corporate author still needs to appear in the author position — an article

@@ -4,11 +4,14 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Public;
 
+use App\Enums\PublicationModel;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\ArticleResource;
+use App\Http\Resources\IssueCardResource;
 use App\Http\Resources\JournalResource;
 use App\Models\Article;
 use App\Models\HomeSection;
+use App\Models\Issue;
 use App\Models\Journal;
 use App\Models\JournalMetric;
 use App\Models\NewsItem;
@@ -48,9 +51,15 @@ class HomeController extends Controller
 
             'stats' => $this->stats(),
 
+            // The latest issues, one card each — "Volume 10 · Number 2 · Spring 2026". An
+            // issue-based journal is read issue by issue, the way it was printed.
+            'featuredIssues' => IssueCardResource::collection(IssueCardResource::query()->limit(3)->get()),
+
+            // Continuous journals have no issues, so they still get a journal card.
             'featuredJournals' => JournalResource::collection(
                 Journal::query()
                     ->where('is_active', true)
+                    ->where('publication_model', PublicationModel::Continuous)
                     ->with(['field', 'metric', 'coverMedia'])
                     ->orderByDesc(
                         // Featured = most active. The frontend used to take JOURNALS.slice(0,3),
@@ -66,7 +75,7 @@ class HomeController extends Controller
             'latestArticles' => ArticleResource::collection(
                 Article::query()
                     ->published()
-                    ->with(['journal', 'authors', 'section'])
+                    ->with(['journal', 'authors', 'section', 'issue.volume', 'issue.coverMedia'])
                     ->orderByDesc('published_at')
                     ->limit(4)
                     ->get()
@@ -157,9 +166,14 @@ class HomeController extends Controller
                 'suffix' => '',
                 'decimals' => 0,
             ],
+            // Issues, not journals: the site publishes one journal, so "1 journal" told a
+            // reader nothing. Every published issue of an open-access journal is free to read.
             [
-                'label' => 'Open-access journals',
-                'value' => (float) Journal::where('is_active', true)->where('open_access', true)->count(),
+                'label' => 'Open-access issues',
+                'value' => (float) Issue::query()
+                    ->published()
+                    ->whereHas('volume.journal', fn ($q) => $q->where('is_active', true)->where('open_access', true))
+                    ->count(),
                 'suffix' => '',
                 'decimals' => 0,
             ],

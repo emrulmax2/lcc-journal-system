@@ -55,7 +55,7 @@ class ImportArchiveCommand extends Command
     private const SKIPPED_TYPES = ['front-matter', 'back-matter'];
 
     /** @var array<string, int> */
-    private array $tally = ['created' => 0, 'updated' => 0, 'skipped' => 0, 'figures' => 0, 'references' => 0];
+    private array $tally = ['created' => 0, 'updated' => 0, 'skipped' => 0, 'figures' => 0, 'references' => 0, 'issue PDFs' => 0, 'thumbnails' => 0];
 
     /** @var list<string> */
     private array $needsAttention = [];
@@ -102,9 +102,9 @@ class ImportArchiveCommand extends Command
 
         $this->newLine();
         $this->info(sprintf(
-            '%d created, %d updated, %d skipped · %d figures · %d references',
+            '%d created, %d updated, %d skipped · %d figures · %d references · %d full-issue PDFs · %d thumbnails',
             $this->tally['created'], $this->tally['updated'], $this->tally['skipped'],
-            $this->tally['figures'], $this->tally['references'],
+            $this->tally['figures'], $this->tally['references'], $this->tally['issue PDFs'], $this->tally['thumbnails'],
         ));
 
         if ($this->needsAttention !== []) {
@@ -146,13 +146,10 @@ class ImportArchiveCommand extends Command
             ]);
 
             $this->attachCover($issue, $dir, $meta, $label);
+            $this->attachFullPdf($issue, $dir, $meta);
         }
 
         $this->line('  issue: '.($issue?->wasRecentlyCreated || ! $issue ? 'new (draft)' : 'exists ('.$issue->status->value.')'));
-
-        if ($issue?->status === IssueStatus::Published) {
-            $this->needsAttention[] = "{$label} is already marked published; publish its new articles one by one.";
-        }
 
         $sequence = 0;
 
@@ -177,6 +174,12 @@ class ImportArchiveCommand extends Command
         if ($existing?->isFrozen()) {
             $this->line("  <fg=gray>skip</>    {$where} {$short} — already {$existing->status->value}");
             $this->tally['skipped']++;
+
+            // The record is permanent, but its card thumbnail is presentation, not the
+            // record — a published article still gets one if it has none.
+            if (! $this->option('dry-run')) {
+                $this->attachThumbnail($existing, $dir, false);
+            }
 
             return;
         }
@@ -239,6 +242,7 @@ class ImportArchiveCommand extends Command
 
             $this->replaceReferences($article, $data);
             $this->attachPdf($article, $dir, $data, $overwrite);
+            $this->attachThumbnail($article, $dir, $overwrite);
         });
 
         $this->tally[$existing ? 'updated' : 'created']++;
@@ -355,6 +359,29 @@ class ImportArchiveCommand extends Command
         }
     }
 
+    /**
+     * The first-page thumbnail (thumbnail.jpg, made by the archive's _tools/thumbs.py) shown
+     * on article cards. Public disk — it is a preview image, not the paper.
+     */
+    private function attachThumbnail(Article $article, string $dir, bool $overwrite): void
+    {
+        $source = $dir.'/thumbnail.jpg';
+        $disk = Storage::disk('public');
+
+        if (! is_file($source)) {
+            return;
+        }
+
+        if (filled($article->thumbnail_path) && $disk->exists($article->thumbnail_path) && ! $overwrite) {
+            return;
+        }
+
+        $path = "articles/{$article->id}/thumbnail.jpg";
+        $disk->put($path, (string) file_get_contents($source));
+        $article->forceFill(['thumbnail_path' => $path])->save();
+        $this->tally['thumbnails']++;
+    }
+
     /** PDFs live on the private disk and are streamed through the stable public route. */
     private function attachPdf(Article $article, string $dir, array $data, bool $overwrite): void
     {
@@ -388,6 +415,36 @@ class ImportArchiveCommand extends Command
         }
 
         $article->files()->create($attributes);
+    }
+
+    /**
+     * The whole printed issue as one PDF (<issue>/<issue>-full-issue.pdf). It is the only
+     * place the front and back matter — editorial panel, contents, guidelines — appear on
+     * the site. Kept on the PRIVATE disk and streamed through the issue's PDF route.
+     */
+    private function attachFullPdf(Issue $issue, string $dir, array $meta): void
+    {
+        $source = $dir.'/'.($meta['full_issue_pdf'] ?? basename($dir).'-full-issue.pdf');
+        $disk = Storage::disk('private');
+
+        if (! is_file($source)) {
+            return;
+        }
+
+        if (filled($issue->full_pdf_path) && $disk->exists($issue->full_pdf_path) && ! $this->option('overwrite')) {
+            return;
+        }
+
+        $old = $issue->full_pdf_path;
+        $path = sprintf('issues/jcdms-v%02dn%d-%s.pdf', $meta['volume'], $meta['number'], Str::random(16));
+        $disk->put($path, (string) file_get_contents($source));
+        $issue->update(['full_pdf_path' => $path]);   // new bytes first, then drop the old ones
+
+        if (filled($old) && $old !== $path) {
+            $disk->delete($old);
+        }
+
+        $this->tally['issue PDFs']++;
     }
 
     private function attachCover(Issue $issue, string $dir, array $meta, string $label): void

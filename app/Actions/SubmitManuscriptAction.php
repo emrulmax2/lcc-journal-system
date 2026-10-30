@@ -73,6 +73,10 @@ final class SubmitManuscriptAction
             'journal_id' => $journal->id,
             'journal_section_id' => $this->sectionId($journal, $data['type'] ?? null),
 
+            // The issue the author is aiming for, already checked to be one of this journal's
+            // open issues. NULL means "the next available issue".
+            'target_issue_id' => $data['target_issue_id'] ?? null,
+
             // NULL for a guest — the corresponding author is the submission_author flagged
             // is_corresponding, identified by the email they entered, not by a user account.
             'corresponding_author_id' => $author?->id,

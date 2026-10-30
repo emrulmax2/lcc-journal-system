@@ -1,53 +1,51 @@
 import { Head, router } from '@inertiajs/react'
-import { SlidersHorizontal } from 'lucide-react'
-import { JournalCard } from '@/components/Cards'
+import { ArrowDownUp } from 'lucide-react'
+import { IssueCard, JournalCard } from '@/components/Cards'
 import { Reveal, RevealGroup, RevealItem } from '@/components/Reveal'
 import { toJournalCard } from '@/lib/props'
-import type { Journal, Meta } from '@/lib/props'
+import type { IssueCard as IssueCardData, Journal, Meta } from '@/lib/props'
 
-type Sort = 'impact' | 'articles' | 'speed'
+type Sort = 'newest' | 'oldest'
 
 const SORTS: { id: Sort; label: string }[] = [
-  { id: 'impact', label: 'Impact factor' },
-  { id: 'articles', label: 'Articles published' },
-  { id: 'speed', label: 'Fastest decision' },
+  { id: 'newest', label: 'Newest first' },
+  { id: 'oldest', label: 'Oldest first' },
 ]
 
 type Props = {
+  issues: IssueCardData[]
+  /** Continuous journals only — they have no issues, so they keep a journal card. */
   journals: Journal[]
-  fields: string[]
+  volumes: { number: number; years: string }[]
+  journalTitles: string[]
   filters: {
-    field: string | null
-    sort: string
+    volume: number | null
+    sort: Sort
   }
   meta: Meta
 }
 
-export default function Journals({ journals, fields, filters, meta }: Props) {
-  const activeField = filters.field
-  const sort = filters.sort
-
-  /**
-   * Filtering and sorting are the SERVER's job now, and both live in the URL.
-   *
-   * `sort` used to be local component state, so a sorted view could not be shared,
-   * bookmarked or reached with the back button — the link you sent a colleague showed
-   * them a different order from the one you were looking at.
-   */
-  const visit = (next: { field?: string | null; sort?: string }) => {
-    const field = next.field !== undefined ? next.field : activeField
-    const nextSort = next.sort !== undefined ? next.sort : sort
+/**
+ * The journals, browsed ISSUE BY ISSUE.
+ *
+ * Each card is one printed issue — the journal's name, then "Volume 5 · Number 1 · Summer
+ * 2017". It used to be a single journal card with every article from every issue behind it,
+ * which hid the volumes entirely. The volume filter and the sort both live in the URL.
+ */
+export default function Journals({ issues, journals, volumes, journalTitles, filters, meta }: Props) {
+  const visit = (next: { volume?: number | null; sort?: Sort }) => {
+    const volume = next.volume !== undefined ? next.volume : filters.volume
+    const sort = next.sort ?? filters.sort
 
     const params: Record<string, string> = {}
-    if (field) params.field = field
-    if (nextSort) params.sort = nextSort
+    if (volume) params.volume = String(volume)
+    if (sort !== 'newest') params.sort = sort
 
-    router.get('/journals', params, {
-      preserveState: true,
-      preserveScroll: true,
-      replace: true,
-    })
+    router.get('/journals', params, { preserveState: true, preserveScroll: true, replace: true })
   }
+
+  const single = journalTitles.length === 1 ? journalTitles[0] : null
+  const total = issues.length + journals.length
 
   return (
     <>
@@ -59,13 +57,11 @@ export default function Journals({ journals, fields, filters, meta }: Props) {
         <div className="container-page py-14">
           <Reveal>
             <p className="eyebrow">Journals</p>
-            <h1 className="mt-3 font-serif text-4xl sm:text-5xl">All journals</h1>
-            {/* Was "Six open-access journals…" — a count written into the page, which was
-                the number of journals in the deleted fixture and not the number in the
-                database. The count is stated below, from the data. */}
+            <h1 className="mt-3 font-serif text-4xl sm:text-5xl">{single ?? 'All journals'}</h1>
             <p className="mt-4 max-w-prose text-ink-600">
-              Every journal is open access and led by a specialist editorial board. Filter by field,
-              or sort by the metric that matters to you.
+              {single
+                ? 'Every issue, volume by volume. Open access and free to read — choose an issue to see its articles, or download the whole issue as a PDF.'
+                : 'Every issue of our open-access journals, volume by volume. Choose an issue to see its articles.'}
             </p>
           </Reveal>
         </div>
@@ -74,33 +70,36 @@ export default function Journals({ journals, fields, filters, meta }: Props) {
       <div className="container-page py-12">
         {/* Filters */}
         <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <h2 className="sr-only">Filter by field</h2>
-            <ul className="flex flex-wrap gap-2">
-              <li>
-                <FilterChip active={!activeField} onClick={() => visit({ field: null })}>
-                  All fields
-                </FilterChip>
-              </li>
-              {fields.map((f) => (
-                <li key={f}>
-                  <FilterChip active={activeField === f} onClick={() => visit({ field: f })}>
-                    {f}
+          {volumes.length > 1 && (
+            <div>
+              <h2 className="sr-only">Filter by volume</h2>
+              <ul className="flex flex-wrap gap-2">
+                <li>
+                  <FilterChip active={!filters.volume} onClick={() => visit({ volume: null })}>
+                    All volumes
                   </FilterChip>
                 </li>
-              ))}
-            </ul>
-          </div>
+                {volumes.map((v) => (
+                  <li key={v.number}>
+                    <FilterChip active={filters.volume === v.number} onClick={() => visit({ volume: v.number })}>
+                      Volume {v.number}
+                      {v.years && <span className="ml-1.5 opacity-70">{v.years}</span>}
+                    </FilterChip>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           <div className="flex items-center gap-3">
-            <SlidersHorizontal className="h-4 w-4 shrink-0 text-ink-500" aria-hidden="true" />
+            <ArrowDownUp className="h-4 w-4 shrink-0 text-ink-500" aria-hidden="true" />
             <label htmlFor="sort" className="shrink-0 text-sm font-medium text-ink-700">
               Sort by
             </label>
             <select
               id="sort"
-              value={sort}
-              onChange={(e) => visit({ sort: e.target.value })}
+              value={filters.sort}
+              onChange={(e) => visit({ sort: e.target.value as Sort })}
               className="h-11 cursor-pointer rounded-full border border-ink-300 bg-white px-4 pr-9 text-sm
                          text-ink-900 transition-colors duration-200 hover:border-ink-900 focus:border-brand-600"
             >
@@ -114,16 +113,23 @@ export default function Journals({ journals, fields, filters, meta }: Props) {
         </div>
 
         <p aria-live="polite" className="mt-6 text-sm text-ink-600">
-          Showing {journals.length} {journals.length === 1 ? 'journal' : 'journals'}
-          {activeField ? ` in ${activeField}` : ''}
+          Showing {issues.length} {issues.length === 1 ? 'issue' : 'issues'}
+          {filters.volume ? ` in Volume ${filters.volume}` : ''}
+          {journals.length > 0 &&
+            ` and ${journals.length} continuously published ${journals.length === 1 ? 'journal' : 'journals'}`}
         </p>
 
         {/* Re-keying on the filter replays the stagger, so a filter change reads as a change. */}
         <RevealGroup
-          key={`${activeField ?? 'all'}-${sort}`}
+          key={`${filters.volume ?? 'all'}-${filters.sort}`}
           className="mt-6 grid gap-6 sm:grid-cols-2 lg:grid-cols-3"
           stagger={0.07}
         >
+          {issues.map((issue) => (
+            <RevealItem key={issue.key} className="h-full">
+              <IssueCard issue={issue} />
+            </RevealItem>
+          ))}
           {journals.map((j) => (
             <RevealItem key={j.slug} className="h-full">
               <JournalCard journal={toJournalCard(j)} />
@@ -131,16 +137,18 @@ export default function Journals({ journals, fields, filters, meta }: Props) {
           ))}
         </RevealGroup>
 
-        {journals.length === 0 && (
+        {total === 0 && (
           <p className="mt-16 text-center text-ink-600">
-            No journals in this field yet.{' '}
-            <button
-              type="button"
-              onClick={() => visit({ field: null })}
-              className="link-underline font-semibold"
-            >
-              Clear the filter
-            </button>
+            {filters.volume ? (
+              <>
+                No published issues in Volume {filters.volume}.{' '}
+                <button type="button" onClick={() => visit({ volume: null })} className="link-underline font-semibold">
+                  Show all volumes
+                </button>
+              </>
+            ) : (
+              'No issues have been published yet.'
+            )}
           </p>
         )}
       </div>

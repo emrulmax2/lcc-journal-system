@@ -32,6 +32,7 @@ use App\Http\Controllers\MyAccountController;
 use App\Http\Controllers\Public\ArticleController;
 use App\Http\Controllers\Public\CitationController;
 use App\Http\Controllers\Public\HomeController;
+use App\Http\Controllers\Public\IssueShowController;
 use App\Http\Controllers\Public\JournalController;
 use App\Http\Controllers\Public\JournalShowController;
 use App\Http\Controllers\Public\NewsController;
@@ -68,6 +69,15 @@ Route::get('/journals', [JournalController::class, 'index'])->name('journals.ind
 // {journal:slug}, explicitly. The admin binds the same model by id (see Journal.php) —
 // declaring the key here keeps the two from fighting over one model-wide setting.
 Route::get('/journals/{journal:slug}', JournalShowController::class)->name('journals.show');
+
+// One printed issue — its cover, table of contents and the whole issue as a PDF. Addressed
+// by volume and issue NUMBER, the way the issue is cited, never by a database id.
+Route::get('/journals/{journal:slug}/volume/{volume}/issue/{number}', [IssueShowController::class, 'show'])
+    ->whereNumber(['volume', 'number'])
+    ->name('journals.issues.show');
+Route::get('/journals/{journal:slug}/volume/{volume}/issue/{number}/pdf', [IssueShowController::class, 'pdf'])
+    ->whereNumber(['volume', 'number'])
+    ->name('journals.issues.pdf');
 
 Route::get('/articles', [ArticleController::class, 'index'])->name('articles.index');
 

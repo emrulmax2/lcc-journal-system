@@ -6,6 +6,7 @@ namespace App\Http\Controllers\Public;
 
 use App\Http\Controllers\Controller;
 use App\Http\Resources\ArticleResource;
+use App\Http\Resources\IssueCardResource;
 use App\Models\Article;
 use App\Models\Journal;
 use App\Services\Content\MarkdownRenderer;
@@ -38,7 +39,7 @@ class JournalShowController extends Controller
         $articles = Article::query()
             ->published()
             ->where('journal_id', $journal->id)
-            ->with(['journal', 'authors', 'section'])
+            ->with(['journal', 'authors', 'section', 'issue.volume', 'issue.coverMedia'])
             ->orderByDesc('published_at')
             ->limit(6)
             ->get();
@@ -84,6 +85,9 @@ class JournalShowController extends Controller
                     'computedAt' => $journal->metric?->computed_at?->toDateString(),
                 ],
             ],
+
+            // Every published issue, newest first — the journal browsed volume by volume.
+            'issues' => IssueCardResource::collection(IssueCardResource::query($journal)->get()),
 
             'latestArticles' => ArticleResource::collection($articles),
 

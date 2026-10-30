@@ -99,6 +99,7 @@ final class SubmissionController extends Controller
         $submission->load([
             'journal',
             'section',
+            'targetIssue.volume',
             'authors',
             'files.uploader',
             'reviewRounds.assignments' => fn ($q) => $q->with($reveal ? ['reviewer', 'review'] : ['review']),

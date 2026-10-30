@@ -4,7 +4,7 @@ import { motion, useReducedMotion, useScroll, useTransform } from 'framer-motion
 import { ArrowRight, Search, Sparkles } from 'lucide-react'
 import Counter from '@/components/Counter'
 import ImageWithFallback, { CardImage } from '@/components/ImageWithFallback'
-import { ArticleCard, JournalCard, NewsCard, TopicCard } from '@/components/Cards'
+import { ArticleCard, IssueCard, JournalCard, NewsCard, TopicCard } from '@/components/Cards'
 import { Reveal, RevealGroup, RevealItem } from '@/components/Reveal'
 import { icon as resolveIcon } from '@/lib/icons'
 import { easeOut } from '@/lib/motion'
@@ -14,6 +14,7 @@ import type {
   HomeSection,
   HomeSections,
   HomeTopic,
+  IssueCard as IssueCardData,
   Journal,
   Meta,
   NewsItem,
@@ -34,6 +35,9 @@ type Props = {
    */
   sections: HomeSections
   stats: Stat[]
+  /** The latest issues, one card each. */
+  featuredIssues: IssueCardData[]
+  /** Continuous journals only — they have no issues. */
   featuredJournals: Journal[]
   latestArticles: Article[]
   researchTopics: HomeTopic[]
@@ -44,6 +48,7 @@ type Props = {
 export default function Home({
   sections,
   stats,
+  featuredIssues,
   featuredJournals,
   latestArticles,
   researchTopics,
@@ -59,7 +64,11 @@ export default function Home({
       <Hero />
       <Stats stats={stats} />
       <AuthorPaths section={sections['author-paths']} />
-      <FeaturedJournals section={sections['featured-journals']} journals={featuredJournals} />
+      <FeaturedJournals
+        section={sections['featured-journals']}
+        issues={featuredIssues}
+        journals={featuredJournals}
+      />
       <HowPublishingWorks section={sections['how-it-works']} />
       <ResearchTopics section={sections['research-topics']} topics={researchTopics} />
       <Impact section={sections['impact']} stats={stats} />
@@ -315,8 +324,20 @@ function AuthorPaths({ section }: { section?: HomeSection }) {
 
 /* ---------------------------- Featured journals --------------------------- */
 
-function FeaturedJournals({ section, journals }: { section?: HomeSection; journals: Journal[] }) {
-  if (!section || journals.length === 0) return null
+function FeaturedJournals({
+  section,
+  issues,
+  journals,
+}: {
+  section?: HomeSection
+  issues: IssueCardData[]
+  journals: Journal[]
+}) {
+  if (!section || issues.length + journals.length === 0) return null
+
+  // The latest issues first — "Volume 10 · Number 2 · Spring 2026" — then any continuous
+  // journal, three cards in all.
+  const shownJournals = journals.slice(0, Math.max(0, 3 - issues.length))
 
   return (
     <section className="bg-ink-50 py-20">
@@ -324,13 +345,16 @@ function FeaturedJournals({ section, journals }: { section?: HomeSection; journa
         <Reveal className="flex flex-wrap items-end justify-between gap-4">
           <SectionHeading section={section} className="max-w-2xl" />
           <Link href="/journals" className="btn-secondary">
-            All journals
+            All issues
             <ArrowRight className="h-4 w-4" aria-hidden="true" />
           </Link>
         </Reveal>
 
         <RevealGroup className="mt-10 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-          {journals.map((j) => (
+          {issues.map((issue) => (
+            <IssueCard key={issue.key} issue={issue} />
+          ))}
+          {shownJournals.map((j) => (
             <JournalCard key={j.slug} journal={toJournalCard(j)} />
           ))}
         </RevealGroup>

@@ -4,57 +4,78 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Public;
 
+use App\Enums\PublicationModel;
 use App\Http\Controllers\Controller;
+use App\Http\Resources\IssueCardResource;
 use App\Http\Resources\JournalResource;
-use App\Models\Field;
+use App\Models\Issue;
 use App\Models\Journal;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
 
+/**
+ * /journals — browsed ISSUE BY ISSUE.
+ *
+ * An issue-based journal (JCD&MS) is shown as one card per published issue — "Volume 5 ·
+ * Number 1 · Summer 2017" — not as a single card holding every article it has ever printed.
+ * Readers filter by volume and choose newest or oldest first; both live in the URL, so a
+ * filtered view can be shared and bookmarked.
+ *
+ * A continuous journal has no issues, so it still appears as one journal card.
+ */
 class JournalController extends Controller
 {
     public function index(Request $request): Response
     {
-        $sort = $request->string('sort', 'impact')->toString();
+        $sort = $request->string('sort')->toString() === 'oldest' ? 'oldest' : 'newest';
+        $volume = $request->integer('volume') ?: null;
 
-        $journals = Journal::query()
+        $all = IssueCardResource::query()->get();
+
+        // The volume chips come from ALL issues, so choosing one never hides the others.
+        $volumes = $all
+            ->groupBy(fn (Issue $i) => $i->volume->number)
+            ->map(function ($issues, $number) {
+                $years = $issues->map(fn (Issue $i) => $i->publication_date?->year ?? $i->volume->year)->filter()->unique()->sort()->values();
+
+                return [
+                    'number' => (int) $number,
+                    'years' => $years->count() > 1 ? $years->first().'–'.$years->last() : (string) $years->first(),
+                ];
+            })
+            ->sortByDesc('number')
+            ->values();
+
+        $issues = $all
+            ->when($volume, fn ($c) => $c->filter(fn (Issue $i) => $i->volume->number === $volume))
+            ->when($sort === 'oldest', fn ($c) => $c->reverse())
+            ->values();
+
+        $continuous = Journal::query()
             ->where('is_active', true)
+            ->where('publication_model', PublicationModel::Continuous)
             ->with(['field', 'metric', 'coverMedia'])
-            ->when($request->filled('field'), fn ($q) => $q->whereHas(
-                'field',
-                fn ($f) => $f->where('name', $request->string('field'))
-            ))
-            ->leftJoin('journal_metrics', 'journal_metrics.journal_id', '=', 'journals.id')
-            ->select('journals.*')
-            ->orderBy(...$this->ordering($sort))
+            ->orderBy('title')
             ->get();
 
+        $issueJournals = $all->map(fn (Issue $i) => $i->volume->journal->title)->unique()->values();
+
         return Inertia::render('Journals', [
-            'journals' => JournalResource::collection($journals),
-            'fields' => Field::orderBy('sequence')->pluck('name'),
+            'issues' => IssueCardResource::collection($issues),
+            'journals' => $volume ? [] : JournalResource::collection($continuous),
+            'volumes' => $volumes,
+            'journalTitles' => $issueJournals,
             'filters' => [
-                // `sort` now round-trips through the URL. It previously lived in local
-                // component state, so a sorted view could not be shared or bookmarked.
-                'field' => $request->string('field')->toString() ?: null,
+                'volume' => $volume,
                 'sort' => $sort,
             ],
             'meta' => [
                 'title' => 'Journals — '.config('app.name'),
-                'description' => 'Open-access journals across every field of research.',
+                'description' => $issueJournals->count() === 1
+                    ? "Every issue of the {$issueJournals->first()}, volume by volume. Open access."
+                    : 'Every issue of our open-access journals, volume by volume.',
             ],
         ]);
-    }
-
-    /** @return array{0: string, 1: string} */
-    private function ordering(string $sort): array
-    {
-        return match ($sort) {
-            'articles' => ['journal_metrics.article_count', 'desc'],
-            // "speed" sorts ASCENDING — fewer days to a decision is better. Getting this
-            // backwards would present the slowest journals as the fastest.
-            'speed' => ['journal_metrics.median_days_to_decision', 'asc'],
-            default => ['journal_metrics.impact_factor', 'desc'],
-        };
     }
 }
