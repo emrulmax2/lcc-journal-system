@@ -65,8 +65,12 @@ export default function Footer() {
       <div className="container-page py-14">
         <Newsletter />
 
-        <div className="mt-14 grid gap-10 border-t border-ink-800 pt-12 sm:grid-cols-2 lg:grid-cols-4">
-          <div>
+        {/* The brand column is WIDER than the link columns. The logo lockup (mark, JCDMS and
+            the journal's full name, which must not wrap) is ~330px; four equal columns gave it
+            ~274px, so the name ran into the Guidelines heading. Below 1280px it takes a full
+            row of its own, with the three link columns beneath it. */}
+        <div className="mt-14 grid gap-10 border-t border-ink-800 pt-12 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-[minmax(0,1.45fr)_repeat(3,minmax(0,1fr))]">
+          <div className="sm:col-span-2 lg:col-span-3 xl:col-span-1">
             {/* The footer sits on a dark band, so the logo uses its light (transparent-bar)
                 treatment, with the journal's full name as the subtitle. */}
             <Logo transparent name="always" />
