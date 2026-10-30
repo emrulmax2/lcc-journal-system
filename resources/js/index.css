@@ -240,7 +240,7 @@
    * clear of the sticky navbar when jumped to.
    * ------------------------------------------------------------------------- */
   .prose-article {
-    @apply max-w-[72ch] text-[1.0625rem] leading-[1.8] text-ink-800;
+    @apply text-[1.0625rem] leading-[1.8] text-ink-800;
     overflow-wrap: break-word;
   }
 
