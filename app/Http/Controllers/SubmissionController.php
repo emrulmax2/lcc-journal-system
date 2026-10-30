@@ -7,7 +7,9 @@ namespace App\Http\Controllers;
 use App\Actions\AuthorRevisionAction;
 use App\Actions\SubmitManuscriptAction;
 use App\Enums\SubmissionStatus;
+use App\Http\Resources\IssueCardResource;
 use App\Mail\SubmissionReceivedMail;
+use App\Models\Issue;
 use App\Models\Journal;
 use App\Models\JournalSection;
 use App\Models\Submission;
@@ -19,6 +21,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Notification;
+use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -80,6 +83,7 @@ final class SubmissionController extends Controller
             'conflicts' => ['nullable', 'boolean'],
             'dataAvailable' => ['nullable', 'boolean'],
             'step' => ['nullable', 'integer', 'between:0,4'],
+            'issue' => ['nullable', 'integer'],
         ]);
 
         $journal = filled($data['journal'] ?? null)
@@ -106,6 +110,8 @@ final class SubmissionController extends Controller
         $draft->fill([
             'journal_id' => $journal->id,
             'journal_section_id' => $this->sectionId($journal, $data['type'] ?? null),
+            // A draft is forgiving: an issue that has since closed just becomes "no preference".
+            'target_issue_id' => $this->openIssue($journal, $data['issue'] ?? null)?->id,
             'corresponding_author_id' => $user->id,
             'title' => (string) ($data['title'] ?? ''),
             'abstract' => $data['abstract'] ?? null,
@@ -164,6 +170,7 @@ final class SubmissionController extends Controller
             'ethics' => ['accepted'],
             'conflicts' => ['accepted'],
             'dataAvailable' => ['nullable', 'boolean'],
+            'issue' => ['nullable', 'integer'],
         ], [
             'ethics.accepted' => 'Confirm the ethics statement to continue.',
             'conflicts.accepted' => 'Declare competing interests to continue.',
@@ -172,6 +179,17 @@ final class SubmissionController extends Controller
         ]);
 
         $journal = Journal::where('slug', $data['journal'])->firstOrFail();
+
+        // The issue the author is aiming for. Unlike a draft save, a final submission is told
+        // when its issue has closed in the meantime: silently dropping the choice would send
+        // the editors a preference the author never made.
+        $targetIssue = $this->openIssue($journal, $data['issue'] ?? null);
+        if (filled($data['issue'] ?? null) && $targetIssue === null) {
+            throw ValidationException::withMessages([
+                'issue' => 'That issue is no longer open for submissions. Choose another, or "Next available issue".',
+            ]);
+        }
+        $data['target_issue_id'] = $targetIssue?->id;
 
         $submission = $submit->execute($request->user(), $journal, $data, $request->file('file'));
 
@@ -192,6 +210,7 @@ final class SubmissionController extends Controller
                 'reference' => $submission->reference,
                 'journal' => $journal->title,
                 'title' => $submission->title,
+                'issue' => $targetIssue?->labelWithSeason(),
                 'medianDaysToDecision' => EditorialMetrics::medianDaysToFirstDecision($journal)
                     ?? $journal->metric?->median_days_to_decision,
             ]);
@@ -245,8 +264,46 @@ final class SubmissionController extends Controller
                     ?? $journal->metric?->acceptance_rate,
                 'medianDaysToDecision' => EditorialMetrics::medianDaysToFirstDecision($journal)
                     ?? $journal->metric?->median_days_to_decision,
+
+                // Where the journal is now, so the author can see what they are joining.
+                'latestIssue' => $this->latestIssue($journal),
+
+                // The issues the editors have opened for submissions (unpublished ones).
+                'openIssues' => Issue::query()
+                    ->openForSubmissions($journal)
+                    ->with('volume')
+                    ->get()
+                    ->map(fn (Issue $issue): array => [
+                        'id' => $issue->id,
+                        'label' => $issue->labelWithSeason(),
+                    ])
+                    ->values()
+                    ->all(),
             ])
             ->all();
+    }
+
+    /** @return array{label: string, url: string, cover: string|null, articles: int}|null */
+    private function latestIssue(Journal $journal): ?array
+    {
+        $latest = IssueCardResource::query($journal)->first();
+
+        return $latest === null ? null : [
+            'label' => $latest->labelWithSeason(),
+            'url' => $latest->url(),
+            'cover' => $latest->coverMedia?->url,
+            'articles' => (int) $latest->published_articles_count,
+        ];
+    }
+
+    /** An unpublished issue of this journal, or null: never a published or foreign one. */
+    private function openIssue(Journal $journal, mixed $id): ?Issue
+    {
+        if (blank($id)) {
+            return null;
+        }
+
+        return Issue::query()->openForSubmissions($journal)->with('volume')->find((int) $id);
     }
 
     /**
@@ -286,6 +343,7 @@ final class SubmissionController extends Controller
         return [
             // The SLUG, not the title: the radio group submits a key, not a display string.
             'journal' => $draft->journal?->slug ?? '',
+            'issue' => $draft->target_issue_id,
             'title' => (string) $draft->title,
             'type' => $draft->section?->name ?? '',
             'abstract' => (string) $draft->abstract,

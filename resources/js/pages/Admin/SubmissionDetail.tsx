@@ -962,6 +962,8 @@ function StatusCard({
         </Row>
         <Row label="Stage">{submission.stageLabel}</Row>
         <Row label="Submitted">{formatDate(submission.submittedAt)}</Row>
+        {/* The author's preference. Placing the paper is still done on the article. */}
+        <Row label="Intended issue">{submission.targetIssue ?? 'Next available'}</Row>
         <Row label="Reviewers">
           {reviewerTotals.total === 0
             ? 'None invited'

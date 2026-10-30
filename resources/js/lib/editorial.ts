@@ -116,6 +116,8 @@ export type EditorSubmissionDetail = {
   keywords: string[]
   section: string | null
   submittedAt: string | null
+  /** The issue the author is aiming for — a preference. null = next available issue. */
+  targetIssue: string | null
   authors: EditorAuthor[]
   rounds: ReviewRoundView[]
   decisions: DecisionView[]

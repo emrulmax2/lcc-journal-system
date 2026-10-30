@@ -44,6 +44,15 @@ class Submission extends Model
         return $this->belongsTo(Journal::class);
     }
 
+    /**
+     * The issue the author is aiming for. A preference, not a placement — NULL means "the
+     * next available issue", and the editors decide where an accepted paper appears.
+     */
+    public function targetIssue(): BelongsTo
+    {
+        return $this->belongsTo(Issue::class, 'target_issue_id');
+    }
+
     public function section(): BelongsTo
     {
         return $this->belongsTo(JournalSection::class, 'journal_section_id');

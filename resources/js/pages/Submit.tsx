@@ -5,13 +5,17 @@ import {
   AlertTriangle,
   ArrowLeft,
   ArrowRight,
+  BookOpen,
+  CalendarDays,
   Check,
   CheckCircle2,
+  ExternalLink,
   FileUp,
   Loader2,
   ShieldCheck,
   X,
 } from 'lucide-react'
+import { JournalNameLockup } from '@/components/Cards'
 import { Reveal } from '@/components/Reveal'
 import { formatNumber } from '@/lib/format'
 import { easeOut } from '@/lib/motion'
@@ -28,6 +32,10 @@ export type SubmitJournal = {
   description: string | null
   acceptanceRate: number | null
   medianDaysToDecision: number | null
+  /** The most recent published issue — context for the author, not a choice. */
+  latestIssue: { label: string; url: string; cover: string | null; articles: number } | null
+  /** Unpublished issues the editors have opened, soonest first. */
+  openIssues: { id: number; label: string }[]
 }
 
 export type Author = {
@@ -49,6 +57,8 @@ export type Author = {
 export type SubmissionDraft = {
   /** Journal SLUG. */
   journal: string
+  /** The issue aimed for; null = next available issue. */
+  issue?: number | null
   title: string
   type: string
   abstract: string
@@ -75,6 +85,8 @@ export type SubmissionReceipt = {
   reference: string | null
   journal: string | null
   title: string | null
+  /** "Volume 11, Number 1 · Spring 2027", or null for "next available issue". */
+  issue?: string | null
   medianDaysToDecision: number | null
 }
 
@@ -95,7 +107,7 @@ type SharedProps = {
 
 /* --------------------------------- Form ---------------------------------- */
 
-const STEPS = ['Journal', 'Manuscript', 'Authors', 'Declarations', 'Review'] as const
+const STEPS = ['Journal & issue', 'Manuscript', 'Authors', 'Declarations', 'Review'] as const
 type StepIndex = 0 | 1 | 2 | 3 | 4
 const LAST_STEP: StepIndex = 4
 
@@ -110,6 +122,11 @@ type Errors = Record<string, string>
 type Form = {
   /** The journal SLUG — not its title. The title is a display string; the backend needs a key. */
   journal: string
+  /**
+   * The issue the author is aiming for (an open, unpublished issue's id), or null for "the
+   * next available issue". A preference: the editors place accepted papers.
+   */
+  issue: number | null
   title: string
   type: string
   abstract: string
@@ -131,12 +148,15 @@ const emptyAuthor = (corresponding = false): Author => ({
   corresponding,
 })
 
-function formFromDraft(draft: SubmissionDraft | null, types: string[]): Form {
+function formFromDraft(draft: SubmissionDraft | null, types: string[], journals: SubmitJournal[]): Form {
   const defaultType = types[0] ?? 'Original Research'
+  // With one journal there is nothing to choose: it is selected for the author.
+  const onlyJournal = journals.length === 1 ? journals[0].slug : ''
 
   if (!draft) {
     return {
-      journal: '',
+      journal: onlyJournal,
+      issue: null,
       title: '',
       type: defaultType,
       abstract: '',
@@ -152,7 +172,8 @@ function formFromDraft(draft: SubmissionDraft | null, types: string[]): Form {
   }
 
   return {
-    journal: draft.journal ?? '',
+    journal: draft.journal || onlyJournal,
+    issue: draft.issue ?? null,
     title: draft.title ?? '',
     type: draft.type || defaultType,
     abstract: draft.abstract ?? '',
@@ -223,14 +244,14 @@ function errorsForStep(step: StepIndex, form: Form): Errors {
 
 /** Which step owns a given error key — including the keys Laravel will send back. */
 function stepForField(key: string): StepIndex {
-  if (key === 'journal') return 0
+  if (key === 'journal' || key === 'issue') return 0
   if (key.startsWith('authors')) return 2
   if (['title', 'type', 'abstract', 'keywords', 'file'].includes(key)) return 1
   return 3
 }
 
 const AUTHOR_ERROR_RE = /^authors\.\d+\.(name|email)$/
-const FIELD_KEYS = ['journal', 'title', 'abstract', 'file', 'ethics', 'conflicts']
+const FIELD_KEYS = ['journal', 'issue', 'title', 'abstract', 'file', 'ethics', 'conflicts']
 
 /** True when the error has a field on screen to attach itself to. */
 function isBound(key: string): boolean {
@@ -248,7 +269,7 @@ export default function Submit({ journals, types, draft, meta }: Props) {
   // Hydrated from the draft on the FIRST render, not in an effect: the server already sent
   // it, so there is no reason for the author to watch an empty form fill itself in.
   const [step, setStep] = useState<StepIndex>(() => clampStep(draft?.step))
-  const [form, setForm] = useState<Form>(() => formFromDraft(draft, types))
+  const [form, setForm] = useState<Form>(() => formFromDraft(draft, types, journals))
   const [errors, setErrors] = useState<Errors>({})
   const [submitting, setSubmitting] = useState(false)
   const [confirmed, setConfirmed] = useState(false)
@@ -360,7 +381,9 @@ export default function Submit({ journals, types, draft, meta }: Props) {
   }
 
   const receipt = flash?.submission ?? null
-  const journalTitle = journals.find((j) => j.slug === form.journal)?.title ?? null
+  const chosenJournal = journals.find((j) => j.slug === form.journal) ?? null
+  const journalTitle = chosenJournal?.title ?? null
+  const issueLabel = chosenJournal?.openIssues.find((i) => i.id === form.issue)?.label ?? null
 
   if (confirmed || receipt) {
     return (
@@ -369,6 +392,7 @@ export default function Submit({ journals, types, draft, meta }: Props) {
         receipt={receipt}
         fallbackTitle={form.title}
         fallbackJournal={journalTitle}
+        fallbackIssue={issueLabel}
       />
     )
   }
@@ -488,7 +512,7 @@ export default function Submit({ journals, types, draft, meta }: Props) {
                   />
                 )}
                 {step === 3 && <StepDeclarations form={form} update={update} errors={errors} />}
-                {step === 4 && <StepReview form={form} journalTitle={journalTitle} />}
+                {step === 4 && <StepReview form={form} journalTitle={journalTitle} issueLabel={issueLabel} />}
               </motion.div>
             </AnimatePresence>
 
@@ -544,6 +568,7 @@ export default function Submit({ journals, types, draft, meta }: Props) {
 function draftPayload(form: Form, step: StepIndex) {
   return {
     journal: form.journal,
+    issue: form.issue,
     title: form.title,
     type: form.type,
     abstract: form.abstract,
@@ -562,6 +587,8 @@ function draftPayload(form: Form, step: StepIndex) {
 function submitPayload(form: Form) {
   return {
     journal: form.journal,
+    // Multipart cannot carry null; an empty string is read as "no preference".
+    issue: form.issue ?? '',
     title: form.title,
     type: form.type,
     abstract: form.abstract,
@@ -668,74 +695,228 @@ type StepProps = {
 
 /* --------------------------------- Steps --------------------------------- */
 
+/**
+ * Step 1 — the journal, and the ISSUE the author is aiming for.
+ *
+ * With a single journal there is nothing to choose, so it is shown as already selected
+ * (set the way the masthead sets it) rather than as a lone radio button to tick.
+ *
+ * The issue is a PREFERENCE. "Next available issue" is the default and the usual choice;
+ * the alternatives are the upcoming issues the editors have opened in the admin. The
+ * journal's latest published issue is shown for context — what the author is joining.
+ */
 function StepJournal({ form, update, errors, journals }: StepProps & { journals: SubmitJournal[] }) {
+  const chosen = journals.find((j) => j.slug === form.journal) ?? null
+  const single = journals.length === 1
+
   return (
-    <fieldset>
-      <legend className="font-serif text-2xl text-ink-900">Choose a journal</legend>
-      <p className="mt-2 text-sm text-ink-600">
-        Not sure? Pick the closest fit — an editor will redirect the manuscript at no cost if it
-        belongs elsewhere.
-      </p>
-
-      {journals.length === 0 ? (
-        <p className="mt-6 rounded-xl border border-ink-200 bg-ink-50 p-5 text-sm text-ink-700">
-          No journals are open for submission at the moment. Please check back shortly.
+    <div>
+      <fieldset>
+        <legend className="font-serif text-2xl text-ink-900">
+          {single ? 'Journal and issue' : 'Choose a journal'}
+        </legend>
+        <p className="mt-2 text-sm text-ink-600">
+          {single
+            ? 'You are submitting to the journal below. Tell us which issue you are aiming for — the editors confirm the issue after peer review.'
+            : 'Not sure? Pick the closest fit — an editor will redirect the manuscript at no cost if it belongs elsewhere.'}
         </p>
-      ) : (
-        <div className="mt-6 grid gap-3 sm:grid-cols-2">
-          {journals.map((j) => {
-            // The radio's value is the SLUG. It used to be the journal's TITLE — a display
-            // string, which the backend would then have had to reverse-engineer into an id.
-            const selected = form.journal === j.slug
 
-            return (
-              <label
-                key={j.slug}
-                className={`flex cursor-pointer gap-3 rounded-xl border p-4 transition-colors duration-200 ${
-                  selected
-                    ? 'border-brand-700 bg-brand-50'
-                    : 'border-ink-200 hover:border-ink-400 hover:bg-ink-50'
-                }`}
-              >
-                <input
-                  type="radio"
-                  name="journal"
-                  value={j.slug}
-                  checked={selected}
-                  onChange={(e) => update('journal', e.target.value)}
-                  className="mt-1 h-4 w-4 cursor-pointer accent-brand-700"
+        {journals.length === 0 ? (
+          <p className="mt-6 rounded-xl border border-ink-200 bg-ink-50 p-5 text-sm text-ink-700">
+            No journals are open for submission at the moment. Please check back shortly.
+          </p>
+        ) : single && chosen ? (
+          <div className="mt-6 rounded-xl border border-brand-700 bg-brand-50/60 p-5">
+            <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-brand-800">
+              <Check className="h-3.5 w-3.5" aria-hidden="true" />
+              Submitting to
+            </p>
+            <div className="mt-3">
+              <JournalNameLockup title={chosen.title} />
+            </div>
+            {chosen.description && <p className="mt-3 text-sm leading-relaxed text-ink-600">{chosen.description}</p>}
+            <JournalStats journal={chosen} />
+          </div>
+        ) : (
+          <div className="mt-6 grid gap-3 sm:grid-cols-2">
+            {journals.map((j) => {
+              // The radio's value is the SLUG. It used to be the journal's TITLE — a display
+              // string, which the backend would then have had to reverse-engineer into an id.
+              const selected = form.journal === j.slug
+
+              return (
+                <label
+                  key={j.slug}
+                  className={`flex cursor-pointer gap-3 rounded-xl border p-4 transition-colors duration-200 ${
+                    selected ? 'border-brand-700 bg-brand-50' : 'border-ink-200 hover:border-ink-400 hover:bg-ink-50'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="journal"
+                    value={j.slug}
+                    checked={selected}
+                    onChange={(e) => {
+                      update('journal', e.target.value)
+                      // An issue belongs to one journal; changing journal clears it.
+                      update('issue', null)
+                    }}
+                    className="mt-1 h-4 w-4 cursor-pointer accent-brand-700"
+                  />
+                  <span>
+                    <span className="block text-sm font-semibold text-ink-900">{j.title}</span>
+                    {j.description && (
+                      <span className="mt-1 block text-xs leading-relaxed text-ink-600">{j.description}</span>
+                    )}
+                    <JournalStats journal={j} />
+                  </span>
+                </label>
+              )
+            })}
+          </div>
+        )}
+
+        {errors.journal && (
+          <p className="mt-4 flex items-start gap-1.5 text-sm text-danger-700">
+            <X className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+            {errors.journal}
+          </p>
+        )}
+      </fieldset>
+
+      {chosen && (
+        <>
+          {chosen.latestIssue && (
+            <div className="mt-8 flex items-center gap-4 rounded-xl border border-ink-200 p-4">
+              {chosen.latestIssue.cover ? (
+                <img
+                  src={chosen.latestIssue.cover}
+                  alt=""
+                  width={48}
+                  height={68}
+                  className="h-[68px] w-12 shrink-0 rounded-sm border border-ink-200 object-cover shadow-sm"
                 />
-                <span>
-                  <span className="block text-sm font-semibold text-ink-900">{j.title}</span>
-                  {j.description && (
-                    <span className="mt-1 block text-xs leading-relaxed text-ink-600">
-                      {j.description}
-                    </span>
-                  )}
-                  {/* A launch journal has no acceptance rate and no median yet. Rendering 0%
-                      would be a wrong statistic on the page an author chooses with. */}
-                  {(j.acceptanceRate !== null || j.medianDaysToDecision !== null) && (
-                    <span className="mt-2 block text-xs font-medium text-brand-800">
-                      {j.acceptanceRate !== null && `${formatNumber(j.acceptanceRate)}% acceptance`}
-                      {j.acceptanceRate !== null && j.medianDaysToDecision !== null && ' · '}
-                      {j.medianDaysToDecision !== null &&
-                        `${formatNumber(j.medianDaysToDecision)} days to decision`}
-                    </span>
-                  )}
-                </span>
-              </label>
-            )
-          })}
-        </div>
-      )}
+              ) : (
+                <BookOpen className="h-6 w-6 shrink-0 text-ink-500" aria-hidden="true" />
+              )}
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-semibold uppercase tracking-wide text-ink-500">Latest published issue</p>
+                <p className="mt-0.5 text-sm font-medium text-ink-900">{chosen.latestIssue.label}</p>
+                <p className="text-xs text-ink-600">
+                  {chosen.latestIssue.articles} {chosen.latestIssue.articles === 1 ? 'article' : 'articles'}
+                </p>
+              </div>
+              {/* A new tab: leaving would interrupt the wizard (the draft is saved, but still). */}
+              <a
+                href={chosen.latestIssue.url}
+                target="_blank"
+                rel="noopener"
+                className="link-underline inline-flex shrink-0 items-center gap-1 text-sm font-medium"
+              >
+                View issue
+                <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+                <span className="sr-only">(opens in a new tab)</span>
+              </a>
+            </div>
+          )}
 
-      {errors.journal && (
-        <p className="mt-4 flex items-start gap-1.5 text-sm text-danger-700">
-          <X className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-          {errors.journal}
-        </p>
+          <fieldset className="mt-8">
+            <legend className="text-base font-semibold text-ink-900">Which issue are you aiming for?</legend>
+            <p className="mt-1 text-sm text-ink-600">
+              A preference, not a booking: the editors place accepted papers, and will tell you the issue
+              when your manuscript is accepted.
+            </p>
+
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <IssueChoice
+                selected={form.issue === null}
+                onSelect={() => update('issue', null)}
+                title="Next available issue"
+                note="The usual choice — your paper goes into the first issue with space once accepted."
+                recommended
+              />
+              {chosen.openIssues.map((i) => (
+                <IssueChoice
+                  key={i.id}
+                  selected={form.issue === i.id}
+                  onSelect={() => update('issue', i.id)}
+                  title={i.label}
+                  note="Upcoming issue — open for submissions."
+                />
+              ))}
+            </div>
+
+            {chosen.openIssues.length === 0 && (
+              <p className="mt-3 flex items-start gap-2 text-xs text-ink-500">
+                <CalendarDays className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                No upcoming issue has been announced yet. Accepted papers go into the next issue the editors open.
+              </p>
+            )}
+
+            {errors.issue && (
+              <p className="mt-4 flex items-start gap-1.5 text-sm text-danger-700">
+                <X className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                {errors.issue}
+              </p>
+            )}
+          </fieldset>
+        </>
       )}
-    </fieldset>
+    </div>
+  )
+}
+
+/** A launch journal has no acceptance rate and no median yet. Rendering 0% would be a wrong statistic. */
+function JournalStats({ journal }: { journal: SubmitJournal }) {
+  if (journal.acceptanceRate === null && journal.medianDaysToDecision === null) return null
+
+  return (
+    <span className="mt-2 block text-xs font-medium text-brand-800">
+      {journal.acceptanceRate !== null && `${formatNumber(journal.acceptanceRate)}% acceptance`}
+      {journal.acceptanceRate !== null && journal.medianDaysToDecision !== null && ' · '}
+      {journal.medianDaysToDecision !== null && `${formatNumber(journal.medianDaysToDecision)} days to decision`}
+    </span>
+  )
+}
+
+function IssueChoice({
+  selected,
+  onSelect,
+  title,
+  note,
+  recommended = false,
+}: {
+  selected: boolean
+  onSelect: () => void
+  title: string
+  note: string
+  recommended?: boolean
+}) {
+  return (
+    <label
+      className={`flex cursor-pointer gap-3 rounded-xl border p-4 transition-colors duration-200 ${
+        selected ? 'border-brand-700 bg-brand-50' : 'border-ink-200 hover:border-ink-400 hover:bg-ink-50'
+      }`}
+    >
+      <input
+        type="radio"
+        name="issue"
+        checked={selected}
+        onChange={onSelect}
+        className="mt-1 h-4 w-4 cursor-pointer accent-brand-700"
+      />
+      <span>
+        <span className="flex flex-wrap items-center gap-2 text-sm font-semibold text-ink-900">
+          {title}
+          {recommended && (
+            <span className="rounded-full bg-brand-100 px-2 py-0.5 text-[11px] font-semibold text-brand-800">
+              Recommended
+            </span>
+          )}
+        </span>
+        <span className="mt-1 block text-xs leading-relaxed text-ink-600">{note}</span>
+      </span>
+    </label>
   )
 }
 
@@ -1046,12 +1227,21 @@ function StepDeclarations({ form, update, errors }: StepProps) {
   )
 }
 
-function StepReview({ form, journalTitle }: { form: Form; journalTitle: string | null }) {
+function StepReview({
+  form,
+  journalTitle,
+  issueLabel,
+}: {
+  form: Form
+  journalTitle: string | null
+  issueLabel: string | null
+}) {
   const corresponding = form.authors[0]
 
   const rows = [
     // The form holds the slug; the author gets to read the title they chose.
     { k: 'Journal', v: journalTitle ?? form.journal },
+    { k: 'Intended issue', v: issueLabel ?? 'Next available issue' },
     { k: 'Article type', v: form.type },
     { k: 'Title', v: form.title },
     { k: 'Abstract', v: `${form.abstract.slice(0, 120)}${form.abstract.length > 120 ? '…' : ''}` },
@@ -1106,11 +1296,13 @@ function Success({
   receipt,
   fallbackTitle,
   fallbackJournal,
+  fallbackIssue,
 }: {
   meta: Meta
   receipt: SubmissionReceipt | null
   fallbackTitle: string
   fallbackJournal: string | null
+  fallbackIssue: string | null
 }) {
   // This screen can be server-rendered (the controller redirects back with the receipt
   // flashed), so the entrance animation is gated exactly like the rest of the page.
@@ -1121,6 +1313,7 @@ function Success({
   const journal = receipt?.journal || fallbackJournal
   const reference = receipt?.reference ?? null
   const median = receipt?.medianDaysToDecision ?? null
+  const issue = receipt ? (receipt.issue ?? null) : fallbackIssue
 
   return (
     <>
@@ -1148,6 +1341,10 @@ function Success({
           <p className="mt-3 text-ink-600">
             <span className="font-medium text-ink-900">{title || 'Your manuscript'}</span> is now in
             the editor check queue{journal ? ` at ${journal}` : ''}.
+          </p>
+          <p className="mt-2 text-sm text-ink-600">
+            Intended issue: <span className="font-medium text-ink-900">{issue ?? 'next available issue'}</span>
+            . The editors confirm the issue after peer review.
           </p>
 
           {/* The reference is printed ONLY if the server issued one. An invented manuscript
