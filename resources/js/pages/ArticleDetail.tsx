@@ -19,7 +19,7 @@ import { useTranslations } from '@/lib/i18n'
 import { OpenAccessBadge } from '@/components/Cards'
 import { Reveal } from '@/components/Reveal'
 import { formatDate, formatNumber } from '@/lib/format'
-import type { Article, ArticleDetail as ArticleDetailData, Citations, CitationFormat, Meta } from '@/lib/props'
+import type { Article, ArticleDetail as ArticleDetailData, Citations, CitationFormat, Meta, TocEntry } from '@/lib/props'
 
 type Props = {
   article: ArticleDetailData
@@ -102,6 +102,19 @@ export default function ArticleDetail({ article, citations, related, meta }: Pro
   const figure = article.heroImage ?? null
 
   const hasAuthorDetails = article.authorDetails.length > 0
+
+  // "On this page": the abstract, the full text's own sections (from the server, with ids
+  // already on the headings), then the authors and references sections of this page.
+  const sections: TocEntry[] = [
+    ...(article.abstract || article.keywords.length > 0 ? [{ id: 'abstract', text: 'Abstract', level: 2 }] : []),
+    ...article.toc,
+    ...(hasAuthorDetails || article.corporateAuthor
+      ? [{ id: 'authors', text: article.authorDetails.length > 1 ? 'Authors' : 'Author', level: 2 }]
+      : []),
+    ...(article.references.length > 0 ? [{ id: 'references', text: 'References', level: 2 }] : []),
+  ]
+  const activeId = useActiveSection(sections.map((s) => s.id))
+
   const publishedLabel = article.date
     ? `Published ${formatDate(article.date)}`
     : article.isPreview
@@ -314,111 +327,102 @@ export default function ArticleDetail({ article, citations, related, meta }: Pro
           </div>
         </header>
 
-        <div className="container-page grid gap-12 py-12 lg:grid-cols-[1fr_300px]">
-          <div>
-            {figure && (
-              <Reveal>
-                <figure>
-                  <div className="aspect-[16/8] overflow-hidden rounded-xl">
-                    <CardImage
-                      image={figure}
-                      photo={null}
-                      alt={figure.alt ?? ''}
-                      width={1400}
-                      height={700}
-                      priority
-                    />
-                  </div>
-                  {/* The asset's OWN caption and credit. Neither is written here, because
-                      neither can be known here. */}
-                  {(figure.caption || figure.credit) && (
-                    <figcaption className="mt-3 text-sm text-ink-600">
-                      {figure.caption}
-                      {figure.caption && figure.credit ? ' ' : ''}
-                      {figure.credit && <span className="text-ink-500">{figure.credit}</span>}
-                    </figcaption>
-                  )}
-                </figure>
-              </Reveal>
+        <div className="container-page grid grid-cols-1 gap-12 py-12 lg:grid-cols-[minmax(0,1fr)_288px] xl:gap-16">
+          <div className="min-w-0">
+            {/* Small screens: the contents fold up above the text (the rail is beside it on large). */}
+            {sections.length > 2 && (
+              <details className="card mb-8 p-4 lg:hidden">
+                <summary className="cursor-pointer text-sm font-semibold uppercase tracking-wide text-brand-800">
+                  On this page
+                </summary>
+                <div className="mt-3">
+                  <TocList sections={sections} activeId={activeId} />
+                </div>
+              </details>
             )}
 
-            <Reveal className={figure ? 'mt-10' : ''}>
-              {article.abstract && (
-                <>
-                  <h2 className="font-serif text-2xl">Abstract</h2>
-                  {/* Drop cap + measure-limited column: editorial long-form typography. */}
-                  <p
-                    className="mt-4 max-w-prose text-lg leading-[1.75] text-ink-800
-                               first-letter:float-left first-letter:mr-3 first-letter:mt-1
-                               first-letter:font-serif first-letter:text-6xl first-letter:leading-[0.85]
-                               first-letter:text-brand-800"
-                  >
-                    {article.abstract}
-                  </p>
-                </>
-              )}
+            {figure && (
+              <figure className="mb-10">
+                <div className="aspect-[16/8] overflow-hidden rounded-xl">
+                  <CardImage image={figure} photo={null} alt={figure.alt ?? ''} width={1400} height={700} priority />
+                </div>
+                {/* The asset's OWN caption and credit. Neither is written here, because
+                    neither can be known here. */}
+                {(figure.caption || figure.credit) && (
+                  <figcaption className="mt-3 text-sm text-ink-600">
+                    {figure.caption}
+                    {figure.caption && figure.credit ? ' ' : ''}
+                    {figure.credit && <span className="text-ink-500">{figure.credit}</span>}
+                  </figcaption>
+                )}
+              </figure>
+            )}
 
-              {article.body && (
-                <>
-                  <h2 className="mt-10 font-serif text-2xl">Full text</h2>
-                  {article.body
-                    .split(/\n{2,}/)
-                    .map((para) => para.trim())
-                    .filter(Boolean)
-                    .map((para, i) => (
-                      <p key={i} className="mt-4 max-w-prose leading-[1.75] text-ink-800">
-                        {para}
-                      </p>
-                    ))}
-                </>
-              )}
+            {/* ---------------------------- Abstract ---------------------------- */}
+            {(article.abstract || article.keywords.length > 0) && (
+              <section
+                id="abstract"
+                className="max-w-[72ch] scroll-mt-28 rounded-r-xl border-l-4 border-brand-700 bg-brand-50/70 px-6 py-6 sm:px-7"
+              >
+                {article.abstract && (
+                  <>
+                    <h2 className="font-serif text-2xl text-ink-900">Abstract</h2>
+                    <p className="mt-3 whitespace-pre-line text-[1.0625rem] leading-[1.8] text-ink-800">
+                      {article.abstract}
+                    </p>
+                  </>
+                )}
 
-              {/*
-                THE PULL-QUOTE IS GONE, and it was not a matter of taste.
+                {article.keywords.length > 0 && (
+                  <>
+                    <h3 className={`${article.abstract ? 'mt-6' : ''} text-sm font-semibold text-ink-900`}>Keywords</h3>
+                    <ul className="mt-2 flex flex-wrap gap-2">
+                      {article.keywords.map((k) => (
+                        <li key={k}>
+                          <Link
+                            href={`/articles?q=${encodeURIComponent(k)}`}
+                            className="inline-flex min-h-[32px] cursor-pointer items-center rounded-full border border-ink-300
+                                       bg-white px-3 text-[13px] text-ink-700 transition-colors duration-200
+                                       hover:border-brand-600 hover:text-brand-800"
+                          >
+                            {k}
+                          </Link>
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                )}
+              </section>
+            )}
 
-                It read: "The reviewers' reports and the authors' responses are published in
-                full alongside this article." — over a footer reading "Open peer review —
-                {journal}". None of that is true. Review here is SINGLE-BLIND: reviewer
-                identities are withheld from authors, no report is published anywhere on this
-                site, and nothing in the codebase renders one. It was a factual claim about
-                the editorial process, printed on the permanent record of every article, that
-                the system does not honour — and it is the kind of claim DOAJ checks.
+            {/*
+              THE PULL-QUOTE IS GONE, and it was not a matter of taste.
 
-                The pull-quote STYLING stays in the design system for when there is real
-                content to put in it. There is not one here, so there is no pull-quote.
-              */}
+              It read: "The reviewers' reports and the authors' responses are published in
+              full alongside this article." None of that is true: review here is single-blind
+              and no report is published anywhere. A false claim about the editorial process,
+              printed on every article, is the kind of thing DOAJ checks.
+            */}
 
-              {article.keywords.length > 0 && (
-                <>
-                  <h2 className="mt-10 font-serif text-2xl">Keywords</h2>
-                  <ul className="mt-4 flex flex-wrap gap-2">
-                    {article.keywords.map((k) => (
-                      <li key={k}>
-                        <Link
-                          href={`/articles?q=${encodeURIComponent(k)}`}
-                          className="inline-flex min-h-[36px] cursor-pointer items-center rounded-full border
-                                     border-ink-300 px-3 text-sm text-ink-700 transition-colors duration-200
-                                     hover:border-brand-600 hover:bg-brand-50 hover:text-brand-800"
-                        >
-                          {k}
-                        </Link>
-                      </li>
-                    ))}
-                  </ul>
-                </>
-              )}
-            </Reveal>
+            {/* --------------------------- Full text ---------------------------- */}
+            {/* Rendered to HTML on the SERVER (ArticleBody — CommonMark, raw HTML escaped),
+                so it is safe to set, and it is in the page Google Scholar reads. */}
+            {article.bodyHtml && (
+              <div className="prose-article mt-4" dangerouslySetInnerHTML={{ __html: article.bodyHtml }} />
+            )}
 
             {/* --------------------------- Authors ---------------------------- */}
             {/* An article by a research centre has NO rows here. Rendering an empty
                 "Authors" heading over nothing reads as a bug, so the whole block only
                 exists when there is something to put in it. */}
             {hasAuthorDetails ? (
-              <Reveal className="mt-12">
-                <h2 className="font-serif text-2xl">Authors</h2>
+              <section id="authors" className="mt-12 max-w-[72ch] scroll-mt-28 border-t border-ink-200 pt-8">
+                <h2 className="font-serif text-[1.65rem] text-ink-900">
+                  {article.authorDetails.length === 1 ? 'Author' : 'Authors'}
+                </h2>
                 <ul className="mt-4 space-y-4">
                   {article.authorDetails.map((a) => (
-                    <li key={`${a.name}-${a.orcid ?? ''}`} className="max-w-prose">
+                    <li key={`${a.name}-${a.orcid ?? ''}`}>
                       <p className="flex flex-wrap items-center gap-2 font-medium text-ink-900">
                         {a.name}
                         {a.isCorresponding && (
@@ -428,9 +432,7 @@ export default function ArticleDetail({ article, citations, related, meta }: Pro
                           </span>
                         )}
                       </p>
-                      {a.affiliation && (
-                        <p className="mt-0.5 text-sm text-ink-600">{a.affiliation}</p>
-                      )}
+                      {a.affiliation && <p className="mt-0.5 text-sm text-ink-600">{a.affiliation}</p>}
                       {a.orcidUrl && a.orcid && (
                         <a
                           href={a.orcidUrl}
@@ -447,34 +449,26 @@ export default function ArticleDetail({ article, citations, related, meta }: Pro
                     </li>
                   ))}
                 </ul>
-              </Reveal>
+              </section>
             ) : article.corporateAuthor ? (
-              <Reveal className="mt-12">
-                <h2 className="font-serif text-2xl">Author</h2>
-                <p className="mt-4 max-w-prose font-medium text-ink-900">
-                  {article.corporateAuthor}
-                </p>
-              </Reveal>
+              <section id="authors" className="mt-12 max-w-[72ch] scroll-mt-28 border-t border-ink-200 pt-8">
+                <h2 className="font-serif text-[1.65rem] text-ink-900">Author</h2>
+                <p className="mt-4 font-medium text-ink-900">{article.corporateAuthor}</p>
+              </section>
             ) : null}
 
             {/* -------------------------- References -------------------------- */}
             {article.references.length > 0 && (
-              <Reveal className="mt-12">
-                <h2 className="font-serif text-2xl">References</h2>
-                <ol className="mt-4 space-y-3">
+              <section id="references" className="mt-12 max-w-[72ch] scroll-mt-28 border-t border-ink-200 pt-8">
+                <h2 className="font-serif text-[1.65rem] text-ink-900">References</h2>
+                <ol className="mt-5 list-decimal space-y-3 pl-6 marker:text-ink-500">
                   {article.references.map((r) => (
-                    <li key={r.ordinal} className="max-w-prose text-sm leading-relaxed text-ink-700">
-                      <span className="mr-2 font-semibold text-ink-500">{r.ordinal}.</span>
+                    <li key={r.ordinal} className="break-words pl-1 text-[0.9375rem] leading-relaxed text-ink-700">
                       {r.text}
                       {r.doi && (
                         <>
                           {' '}
-                          <a
-                            href={`https://doi.org/${r.doi}`}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="link-underline"
-                          >
+                          <a href={`https://doi.org/${r.doi}`} target="_blank" rel="noreferrer" className="link-underline">
                             https://doi.org/{r.doi}
                           </a>
                         </>
@@ -482,13 +476,41 @@ export default function ArticleDetail({ article, citations, related, meta }: Pro
                     </li>
                   ))}
                 </ol>
-              </Reveal>
+              </section>
+            )}
+            {related.length > 0 && (
+              <div className="card mt-12 max-w-[72ch] p-6">
+                <h2 className="font-serif text-lg">More from this journal</h2>
+                <ul className="mt-4 grid gap-4 sm:grid-cols-2">
+                  {related.map((r) => (
+                    <li key={r.slug}>
+                      <Link
+                        href={`/articles/${r.slug}`}
+                        className="group block cursor-pointer text-sm font-medium leading-snug text-ink-800
+                                   transition-colors duration-200 hover:text-brand-800"
+                      >
+                        {r.title}
+                        <span className="mt-1 block text-xs font-normal text-ink-500">{formatDate(r.date)}</span>
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              </div>
             )}
           </div>
 
-          {/* Metrics rail */}
-          <aside className="lg:sticky lg:top-24 lg:self-start">
-            <div className="card p-6">
+          {/* -------------------- Rail: contents, then metrics -------------------- */}
+          <aside className="space-y-6 lg:sticky lg:top-24 lg:max-h-[calc(100vh-7rem)] lg:self-start lg:overflow-y-auto lg:pb-2 lg:[scrollbar-width:thin]">
+            {sections.length > 2 && (
+              <nav aria-label="On this page" className="hidden lg:block">
+                <p className="text-xs font-semibold uppercase tracking-[0.08em] text-brand-800">On this page</p>
+                <div className="mt-3">
+                  <TocList sections={sections} activeId={activeId} />
+                </div>
+              </nav>
+            )}
+
+            <div id="metrics" className="card p-6">
               <h2 className="font-serif text-lg">Article metrics</h2>
               <dl className="mt-5 space-y-5">
                 <div>
@@ -496,18 +518,14 @@ export default function ArticleDetail({ article, citations, related, meta }: Pro
                     <Users className="h-3.5 w-3.5" aria-hidden="true" />
                     Views &amp; downloads
                   </dt>
-                  <dd className="mt-1 font-serif text-3xl text-ink-900">
-                    {formatNumber(article.views)}
-                  </dd>
+                  <dd className="mt-1 font-serif text-3xl text-ink-900">{formatNumber(article.views)}</dd>
                 </div>
                 <div>
                   <dt className="flex items-center gap-2 text-xs uppercase tracking-wide text-ink-500">
                     <Quote className="h-3.5 w-3.5" aria-hidden="true" />
                     Citations
                   </dt>
-                  <dd className="mt-1 font-serif text-3xl text-ink-900">
-                    {formatNumber(article.citations)}
-                  </dd>
+                  <dd className="mt-1 font-serif text-3xl text-ink-900">{formatNumber(article.citations)}</dd>
                 </div>
               </dl>
 
@@ -524,30 +542,79 @@ export default function ArticleDetail({ article, citations, related, meta }: Pro
               </div>
             </div>
 
-            {related.length > 0 && (
-              <div className="card mt-6 p-6">
-                <h2 className="font-serif text-lg">More from this journal</h2>
-                <ul className="mt-4 space-y-4">
-                  {related.map((r) => (
-                    <li key={r.slug}>
-                      <Link
-                        href={`/articles/${r.slug}`}
-                        className="group block cursor-pointer text-sm font-medium leading-snug text-ink-800
-                                   transition-colors duration-200 hover:text-brand-800"
-                      >
-                        {r.title}
-                        <span className="mt-1 block text-xs font-normal text-ink-500">
-                          {formatDate(r.date)}
-                        </span>
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
           </aside>
         </div>
       </article>
     </>
+  )
+}
+
+/* ------------------------------ On this page ------------------------------ */
+
+/**
+ * The section the reader is in: the last heading that has scrolled past the top band of
+ * the window. Read on scroll (one per animation frame), never during render — there is no
+ * window in the SSR process, so the server renders with nothing highlighted.
+ */
+function useActiveSection(ids: string[]): string | null {
+  const [active, setActive] = useState<string | null>(null)
+  const key = ids.join('|')
+
+  useEffect(() => {
+    if (ids.length === 0) return
+    let frame = 0
+
+    const update = () => {
+      frame = 0
+      let current: string | null = null
+      for (const id of ids) {
+        const el = document.getElementById(id)
+        if (el && el.getBoundingClientRect().top <= 180) current = id
+      }
+      setActive(current ?? ids[0])
+    }
+    const onScroll = () => {
+      if (frame === 0) frame = window.requestAnimationFrame(update)
+    }
+
+    update()
+    window.addEventListener('scroll', onScroll, { passive: true })
+    window.addEventListener('resize', onScroll)
+    return () => {
+      window.removeEventListener('scroll', onScroll)
+      window.removeEventListener('resize', onScroll)
+      if (frame !== 0) window.cancelAnimationFrame(frame)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key])
+
+  return active
+}
+
+/** The contents list: top-level sections, with their sub-sections indented beneath. */
+function TocList({ sections, activeId }: { sections: TocEntry[]; activeId: string | null }) {
+  return (
+    <ol className="space-y-1 border-l border-ink-200">
+      {sections.map((s) => {
+        const active = s.id === activeId
+        return (
+          <li key={s.id}>
+            <a
+              href={`#${s.id}`}
+              aria-current={active ? 'location' : undefined}
+              className={`-ml-px block border-l-2 py-1 leading-snug transition-colors duration-200 ${
+                s.level >= 3 ? 'pl-6 text-[13px]' : 'pl-3 text-sm'
+              } ${
+                active
+                  ? 'border-brand-700 font-medium text-brand-800'
+                  : 'border-transparent text-ink-600 hover:border-ink-300 hover:text-ink-900'
+              }`}
+            >
+              {s.text}
+            </a>
+          </li>
+        )
+      })}
+    </ol>
   )
 }

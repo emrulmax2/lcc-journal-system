@@ -60,7 +60,7 @@ it('renders a crawlable full-text page with the body and the meta tags', functio
     // The full text is in the RAW HTML — markdown rendered to headings and paragraphs.
     $response->assertSee('Coral refugia under repeated thermal stress');
     $response->assertSee('We surveyed three reef systems', false);
-    $response->assertSee('<h2>Methods</h2>', false);
+    $response->assertSee('<h2 id="methods">Methods</h2>', false);   // headings carry anchors for "On this page"
 
     // And the citation meta the harvesters read.
     $response->assertSee('name="citation_title"', false);
