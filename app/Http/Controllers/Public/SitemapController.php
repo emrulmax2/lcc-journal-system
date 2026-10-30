@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Public;
 
 use App\Http\Controllers\Controller;
+use App\Http\Resources\IssueCardResource;
 use App\Models\Article;
+use App\Models\Issue;
 use App\Models\Journal;
 use Illuminate\Http\Response;
 
@@ -30,13 +32,19 @@ class SitemapController extends Controller
             ->map(fn (string $slug): string => route('journals.show', $slug))
             ->all();
 
+        // Every published issue's table of contents — the way the back catalogue is browsed.
+        $issueUrls = IssueCardResource::query()
+            ->get()
+            ->map(fn (Issue $issue): string => $issue->url())
+            ->all();
+
         $xml = view('sitemap', [
             'articles' => $articles,
             'staticUrls' => array_merge([
                 route('home'),
                 route('journals.index'),
                 route('articles.index'),
-            ], $journalUrls),
+            ], $journalUrls, $issueUrls),
         ])->render();
 
         return response($xml, 200, ['Content-Type' => 'application/xml; charset=utf-8']);

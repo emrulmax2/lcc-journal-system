@@ -38,6 +38,12 @@ class Issue extends Model
         return $this->belongsTo(Volume::class);
     }
 
+    /** The printed cover, from the media library. NULL renders the journal's own image. */
+    public function coverMedia(): BelongsTo
+    {
+        return $this->belongsTo(Media::class, 'cover_media_id');
+    }
+
     /** Order is meaningful — it is the running order of the issue, not a sort. */
     public function articles(): HasMany
     {
@@ -65,5 +71,62 @@ class Issue extends Model
     public function scopePublished(Builder $query): Builder
     {
         return $query->where('status', IssueStatus::Published);
+    }
+
+    // --- Presentation -------------------------------------------------------
+
+    /** "Volume 5, Number 1" — the label printed on the cover and used in every heading. */
+    public function label(): string
+    {
+        return "Volume {$this->volume->number}, Number {$this->number}";
+    }
+
+    /** "Volume 5, Number 1 · Summer 2017" */
+    public function labelWithSeason(): string
+    {
+        return filled($this->season) ? "{$this->label()} · {$this->season}" : $this->label();
+    }
+
+    /**
+     * Issues an author may aim a submission at: the journal's UNPUBLISHED issues, which the
+     * editors open in the admin when they plan the next one. Oldest first — the soonest
+     * issue is the likeliest home.
+     */
+    public function scopeOpenForSubmissions(Builder $query, Journal $journal): Builder
+    {
+        return $query
+            ->where('status', IssueStatus::Draft)
+            ->whereHas('volume', fn (Builder $v) => $v->where('journal_id', $journal->id))
+            ->join('volumes', 'volumes.id', '=', 'issues.volume_id')
+            ->orderBy('volumes.number')
+            ->orderBy('issues.number')
+            ->select('issues.*');
+    }
+
+    /**
+     * The public issue page. Built from the volume and issue NUMBERS rather than the row
+     * id, so the address reads the way the issue is cited and survives a database rebuild.
+     * Load `volume.journal` before calling this.
+     */
+    public function url(): string
+    {
+        return route('journals.issues.show', [
+            'journal' => $this->volume->journal->slug,
+            'volume' => $this->volume->number,
+            'number' => $this->number,
+        ]);
+    }
+
+    public function fullPdfUrl(): ?string
+    {
+        if (blank($this->full_pdf_path)) {
+            return null;
+        }
+
+        return route('journals.issues.pdf', [
+            'journal' => $this->volume->journal->slug,
+            'volume' => $this->volume->number,
+            'number' => $this->number,
+        ]);
     }
 }

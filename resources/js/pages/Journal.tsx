@@ -1,14 +1,16 @@
 import { Head, Link } from '@inertiajs/react'
 import { ArrowLeft, ArrowRight, Info, Mail } from 'lucide-react'
-import { ArticleCard, OpenAccessBadge } from '@/components/Cards'
+import { ArticleCard, IssueCard, OpenAccessBadge } from '@/components/Cards'
 import { CardImage } from '@/components/ImageWithFallback'
 import { Reveal, RevealGroup, RevealItem } from '@/components/Reveal'
 import { formatDate, formatNumber } from '@/lib/format'
 import { toArticleCard } from '@/lib/props'
-import type { Article, JournalDetail, Meta } from '@/lib/props'
+import type { Article, IssueCard as IssueCardData, JournalDetail, Meta } from '@/lib/props'
 
 type Props = {
   journal: JournalDetail
+  /** Every published issue, newest first. Empty for a continuous journal. */
+  issues: IssueCardData[]
   latestArticles: Article[]
   meta: Meta
 }
@@ -22,7 +24,7 @@ type Props = {
  * NOTHING. **DOAJ will not accept a journal with no public aims-and-scope page**, and an
  * ISSN nobody can see is not much use to the person trying to verify the journal is real.
  */
-export default function Journal({ journal, latestArticles, meta }: Props) {
+export default function Journal({ journal, issues, latestArticles, meta }: Props) {
   const m = journal.metrics
 
   return (
@@ -43,7 +45,7 @@ export default function Journal({ journal, latestArticles, meta }: Props) {
         </div>
         <div
           aria-hidden="true"
-          className="absolute inset-0 -z-10 bg-gradient-to-br from-ink-950/92 via-ink-900/85 to-brand-900/70"
+          className="absolute inset-0 -z-10 bg-gradient-to-br from-ink-950/90 via-ink-900/85 to-brand-900/70"
         />
 
         <div className="container-page py-16">
@@ -98,7 +100,7 @@ export default function Journal({ journal, latestArticles, meta }: Props) {
         </div>
       </header>
 
-      <div className="container-page grid gap-12 py-12 lg:grid-cols-[1fr_320px]">
+      <div className="container-page grid grid-cols-1 gap-12 py-12 lg:grid-cols-[minmax(0,1fr)_320px]">
         <div>
           <Reveal>
             <h2 className="font-serif text-2xl">Aims and scope</h2>
@@ -130,6 +132,31 @@ export default function Journal({ journal, latestArticles, meta }: Props) {
                 ))}
               </ul>
             </Reveal>
+          )}
+
+          {issues.length > 0 && (
+            <section className="mt-12">
+              <Reveal className="flex flex-wrap items-end justify-between gap-4">
+                <div>
+                  <h2 className="font-serif text-2xl">Issues</h2>
+                  <p className="mt-2 max-w-prose text-sm text-ink-600">
+                    Every issue, newest first. Choose one to see its articles.
+                  </p>
+                </div>
+                <Link href="/journals" className="btn-secondary">
+                  Browse by volume
+                  <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                </Link>
+              </Reveal>
+
+              <RevealGroup className="mt-6 grid gap-6 sm:grid-cols-2" stagger={0.06}>
+                {issues.map((issue) => (
+                  <RevealItem key={issue.key} className="h-full">
+                    <IssueCard issue={issue} />
+                  </RevealItem>
+                ))}
+              </RevealGroup>
+            </section>
           )}
 
           {latestArticles.length > 0 && (

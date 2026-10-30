@@ -180,6 +180,33 @@ export type Journal = {
   metricsComputedAt: string | null
 }
 
+/**
+ * IssueCardResource — one published issue, as a card: "Volume 5 · Number 1 · Summer 2017".
+ * `articles` is THIS issue's count; `journal.impactFactor` and `journal.editors` belong to
+ * the journal and are null/zero-safe like every other metric.
+ */
+export type IssueCard = {
+  key: string
+  url: string
+  volume: number
+  number: number
+  season: string | null
+  year: number | null
+  publicationDate: string | null
+  articles: number
+  cover: { url: string; alt: string | null } | null
+  journal: {
+    slug: string
+    title: string
+    abbreviation: string | null
+    openAccess: boolean
+    image: MediaImage | null
+    photo: PhotoKey | null
+    impactFactor: number | null
+    editors: number
+  }
+}
+
 /** JournalShowController — the journal landing page. */
 export type JournalDetail = {
   slug: string
@@ -214,6 +241,12 @@ export type JournalDetail = {
   }
 }
 
+/** The card image: the article's first page ('page'), or its issue's cover ('cover'). */
+export type ArticleThumbnail = { url: string; kind: 'page' | 'cover' }
+
+/** "Vol 5, No 1 · Summer 2017" */
+export type PrintIssue = { volume: number; number: number; season: string | null }
+
 /** ArticleResource — the card/list shape. */
 export type Article = {
   slug: string
@@ -225,12 +258,16 @@ export type Article = {
   type: string | null
   /** ISO date, or null while the article is unpublished. */
   date: string | null
+  /** The printed issue it appeared in — sent only where the caller loaded it. */
+  printIssue?: PrintIssue | null
   /** NULL until Crossref issues a prefix for the journal. */
   doi: string | null
   doiUrl: string | null
   views: number
   citations: number
   photo: PhotoKey | null
+  /** First-page preview, or the issue cover. Never a stock photo. */
+  thumbnail?: ArticleThumbnail | null
   abstract: string | null
   keywords: string[]
 }
@@ -255,6 +292,8 @@ export type ArticleDetail = Article & {
   pageRange: string | null
   volume: number | null
   issue: number | null
+  /** The issue's table of contents; null while the issue is unpublished. */
+  issueUrl: string | null
   license: string | null
   licenseHolder: string | null
   hasPdf: boolean

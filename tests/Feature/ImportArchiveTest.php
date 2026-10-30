@@ -23,7 +23,7 @@ beforeEach(function () {
     Storage::fake('public');
     Storage::fake('private');
 
-    $this->journal = Journal::factory()->create(['slug' => 'jcdms', 'doi_prefix' => null]);
+    $this->journal = Journal::factory()->create(['slug' => 'jcdms', 'abbreviation' => 'JCD&MS', 'doi_prefix' => null]);
     $this->root = storage_path('framework/testing/archive-'.uniqid());
 
     $issue = $this->root.'/vol05-no1-2017';
@@ -31,6 +31,7 @@ beforeEach(function () {
     File::ensureDirectoryExists($issue.'/articles/02-big-data/figures');
 
     File::put($issue.'/cover.jpg', 'jpeg-bytes');
+    File::put($issue.'/vol05-no1-2017-full-issue.pdf', '%PDF-1.4 whole issue');
     File::put($issue.'/issue.json', json_encode([
         'volume' => 5, 'number' => 1, 'season' => 'Summer 2017', 'year' => 2017, 'cover' => 'cover.jpg',
         'articles' => [
@@ -43,6 +44,7 @@ beforeEach(function () {
     File::put($article.'/body.md', "## Method\n\nWe looked.\n\n![Fig. 1](figures/fig-01-p9.png)\n");
     File::put($article.'/figures/fig-01-p9.png', 'png-bytes');
     File::put($article.'/article.pdf', '%PDF-1.4 test');
+    File::put($article.'/thumbnail.jpg', 'jpeg-first-page');
     File::put($article.'/article.json', json_encode([
         'volume' => 5, 'number' => 1, 'sequence' => 2, 'type' => 'research-article',
         'section' => 'Case Study', 'title' => 'Big data in Sørensen’s café', 'slug' => 'big-data',
@@ -65,6 +67,7 @@ it('imports issues and articles as drafts, with figures, notes, references and t
         ->and($issue->season)->toBe('Summer 2017')
         ->and($issue->cover_path)->not->toBeNull();
     Storage::disk('public')->assertExists($issue->cover_path);
+    Storage::disk('private')->assertExists($issue->full_pdf_path);
 
     // Front matter is skipped; the first real article takes position 1.
     $article = Article::sole();
@@ -81,6 +84,7 @@ it('imports issues and articles as drafts, with figures, notes, references and t
 
     Storage::disk('public')->assertExists("articles/{$article->id}/figures/fig-01-p9.png");
     Storage::disk('private')->assertExists($article->pdf->path);
+    Storage::disk('public')->assertExists($article->thumbnail_path);
 });
 
 it('is safe to run twice', function () {
@@ -106,7 +110,9 @@ it('never touches a published article', function () {
     $published->refresh();
     expect(Article::count())->toBe(1)
         ->and($published->title)->toBe('Live title')
-        ->and($published->body)->toBe('Live body');
+        ->and($published->body)->toBe('Live body')
+        // The card thumbnail is presentation, not the record — a published article still gets one.
+        ->and($published->thumbnail_path)->toBe("articles/{$published->id}/thumbnail.jpg");
 });
 
 it('keeps an existing draft’s slug and authors, and only fills what is blank', function () {

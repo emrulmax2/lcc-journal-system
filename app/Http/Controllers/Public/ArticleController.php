@@ -7,13 +7,16 @@ namespace App\Http\Controllers\Public;
 use App\Enums\ArticleFileType;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\ArticleResource;
+use App\Http\Resources\IssueCardResource;
 use App\Models\Article;
+use App\Models\Issue;
 use App\Models\Journal;
 use App\Models\JournalSection;
 use App\Services\Citations\CitationFormatter;
 use App\Services\Content\MarkdownRenderer;
 use App\Support\CitationMeta;
 use Illuminate\Contracts\View\View;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
@@ -23,44 +26,156 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 class ArticleController extends Controller
 {
     /**
-     * Filtering happens HERE, not in the browser.
+     * The archive search, with a proper set of filters — all of them applied HERE, on the
+     * server, and all of them in the URL so a filtered view can be shared or bookmarked:
      *
-     * The React page used to useMemo over the entire article array. That works for six
-     * fixture rows and collapses the moment a real archive exists — it ships every
-     * article ever published to every visitor in order to show them ten.
+     *   q        free text (title, abstract, keywords, authors)
+     *   volume   volume number                       ?volume=10
+     *   issue    issue number WITHIN that volume     ?volume=10&issue=2
+     *   type     article type (section name)         ?type=Research+Article
+     *   journal  journal slug — only offered when there is more than one journal
+     *   sort     newest (default) | oldest | title
+     *
+     * Every option in the sidebar carries a count computed with the OTHER filters applied
+     * (a faceted search), so a reader can see before clicking that "Case Study" has 3
+     * matches in this volume — and never clicks through to an empty page.
      */
     public function index(Request $request): Response
     {
-        $articles = Article::query()
-            ->published()
-            ->with(['journal', 'authors', 'section'])
-            ->search($request->string('q')->toString())
-            ->when($request->filled('journal') && $request->string('journal')->toString() !== 'all',
-                fn ($q) => $q->whereHas('journal', fn ($j) => $j->where('slug', $request->string('journal'))))
-            ->when($request->filled('type') && $request->string('type')->toString() !== 'all',
-                fn ($q) => $q->whereHas('section', fn ($s) => $s->where('name', $request->string('type'))))
-            ->orderByDesc('published_at')
+        $f = [
+            'q' => trim($request->string('q')->toString()),
+            'journal' => $this->choice($request, 'journal'),
+            'volume' => $request->integer('volume') ?: null,
+            'issue' => $request->integer('issue') ?: null,
+            'type' => $this->choice($request, 'type'),
+            'sort' => in_array($request->string('sort')->toString(), ['oldest', 'title'], true)
+                ? $request->string('sort')->toString()
+                : 'newest',
+        ];
+
+        // An issue number only means something inside a volume.
+        if ($f['volume'] === null) {
+            $f['issue'] = null;
+        }
+
+        $articles = $this->filtered($f)
+            ->with(['journal', 'authors', 'section', 'issue.volume', 'issue.coverMedia'])
+            ->tap(fn (Builder $q) => match ($f['sort']) {
+                'oldest' => $q->orderBy('published_at')->orderBy('sequence'),
+                'title' => $q->orderBy('title'),
+                // Articles in one issue share a publication date; within it, print order.
+                default => $q->orderByDesc('published_at')->orderBy('sequence'),
+            })
+            ->orderBy('id')
             ->paginate(12)
             ->withQueryString();
 
+        $journals = Journal::query()
+            ->where('is_active', true)
+            ->orderBy('title')
+            ->get(['id', 'slug', 'title']);
+        $journal = $f['journal'] ? $journals->firstWhere('slug', $f['journal']) : null;
+
+        // Facet counts. Issues (and so volumes) are counted ignoring the volume/issue
+        // filter; types are counted ignoring the type filter.
+        $issueCounts = $this->filtered($f, ['volume', 'issue'])
+            ->whereNotNull('issue_id')
+            ->toBase()
+            ->selectRaw('issue_id, COUNT(*) AS n')
+            ->groupBy('issue_id')
+            ->pluck('n', 'issue_id');
+
+        $issues = IssueCardResource::query($journal)->get()->map(fn (Issue $i) => [
+            'volume' => $i->volume->number,
+            'number' => $i->number,
+            'season' => $i->season,
+            'year' => $i->publication_date?->year ?? $i->volume->year,
+            'label' => trim("{$i->label()} · {$i->season}", ' ·'),
+            'count' => (int) ($issueCounts[$i->id] ?? 0),
+        ])->values();
+
+        $volumes = $issues
+            ->groupBy('volume')
+            ->map(function ($inVolume, $number) {
+                $years = $inVolume->pluck('year')->filter()->unique()->sort()->values();
+
+                return [
+                    'number' => (int) $number,
+                    'years' => $years->count() > 1 ? $years->first().'–'.$years->last() : (string) $years->first(),
+                    'count' => $inVolume->sum('count'),
+                ];
+            })
+            ->sortByDesc('number')
+            ->values();
+
+        $sectionCounts = $this->filtered($f, ['type'])
+            ->toBase()
+            ->selectRaw('journal_section_id, COUNT(*) AS n')
+            ->groupBy('journal_section_id')
+            ->pluck('n', 'journal_section_id');
+        $sectionNames = JournalSection::whereIn('id', $sectionCounts->keys())->pluck('name', 'id');
+        $typeCounts = [];
+        foreach ($sectionCounts as $id => $n) {
+            if (isset($sectionNames[$id])) {
+                $typeCounts[$sectionNames[$id]] = ($typeCounts[$sectionNames[$id]] ?? 0) + (int) $n;
+            }
+        }
+
         return Inertia::render('Articles', [
             'articles' => ArticleResource::collection($articles),
-            'journals' => Journal::query()
-                ->where('is_active', true)
-                ->orderBy('title')
-                ->get(['slug', 'title'])
-                ->map(fn (Journal $j) => ['slug' => $j->slug, 'title' => $j->title]),
-            'types' => $this->articleTypes(),
+            'journals' => $journals->map(fn (Journal $j) => ['slug' => $j->slug, 'title' => $j->title])->values(),
+            'volumes' => $volumes,
+            'issues' => $issues,
+            'types' => collect($this->articleTypes())
+                ->map(fn (string $name) => ['name' => $name, 'count' => $typeCounts[$name] ?? 0])
+                ->values(),
             'filters' => [
-                'q' => $request->string('q')->toString(),
-                'journal' => $request->string('journal', 'all')->toString(),
-                'type' => $request->string('type', 'all')->toString(),
+                'q' => $f['q'],
+                'journal' => $f['journal'] ?? 'all',
+                'volume' => $f['volume'],
+                'issue' => $f['issue'],
+                'type' => $f['type'] ?? 'all',
+                'sort' => $f['sort'],
             ],
             'meta' => [
                 'title' => 'Articles — '.config('app.name'),
                 'description' => 'Browse peer-reviewed, open-access research.',
             ],
         ]);
+    }
+
+    /**
+     * Published articles matching the filters, minus the ones named in $except — so a facet
+     * can be counted as if its own filter were not set.
+     *
+     * @param  array<string, mixed>  $f
+     * @param  list<string>  $except
+     * @return Builder<Article>
+     */
+    private function filtered(array $f, array $except = []): Builder
+    {
+        $use = fn (string $key): bool => filled($f[$key]) && ! in_array($key, $except, true);
+
+        return Article::query()
+            ->published()
+            ->search($f['q'])
+            ->when($use('journal'), fn (Builder $q) => $q->whereHas('journal', fn (Builder $j) => $j->where('slug', $f['journal'])))
+            ->when($use('volume'), fn (Builder $q) => $q->whereHas('issue', function (Builder $i) use ($f, $use) {
+                $i->published()->whereHas('volume', fn (Builder $v) => $v->where('number', $f['volume']));
+
+                if ($use('issue')) {
+                    $i->where('number', $f['issue']);
+                }
+            }))
+            ->when($use('type'), fn (Builder $q) => $q->whereHas('section', fn (Builder $s) => $s->where('name', $f['type'])));
+    }
+
+    /** A select/radio value, where "all" (or nothing) means no filter. */
+    private function choice(Request $request, string $key): ?string
+    {
+        $value = trim($request->string($key)->toString());
+
+        return $value === '' || $value === 'all' ? null : $value;
     }
 
     /**
@@ -88,7 +203,7 @@ class ArticleController extends Controller
             ->published()
             ->where('journal_id', $article->journal_id)
             ->whereKeyNot($article->id)
-            ->with(['journal', 'authors', 'section'])
+            ->with(['journal', 'authors', 'section', 'issue.volume', 'issue.coverMedia'])
             ->orderByDesc('published_at')
             ->limit(2)
             ->get();
@@ -101,6 +216,9 @@ class ArticleController extends Controller
                     'pageRange' => $article->pageRange(),
                     'volume' => $article->issue?->volume?->number,
                     'issue' => $article->issue?->number,
+                    // "Vol 5, No 1" links to that issue's table of contents — once the issue
+                    // itself is public. A link to an unpublished issue would be a 404.
+                    'issueUrl' => $article->issue?->isPublished() ? $article->issue->url() : null,
                     'license' => $article->journal->license,
                     'licenseHolder' => $article->journal->license_holder,
 

@@ -186,9 +186,15 @@ export default function ArticleDetail({ article, citations, related, meta }: Pro
                 {article.volume !== null && (
                   <>
                     {' · '}
-                    {article.issue !== null
-                      ? `Vol ${article.volume}, No ${article.issue}`
-                      : `Vol ${article.volume}`}
+                    {article.issueUrl ? (
+                      <Link href={article.issueUrl} className="link-underline">
+                        Vol {article.volume}, No {article.issue}
+                      </Link>
+                    ) : article.issue !== null ? (
+                      `Vol ${article.volume}, No ${article.issue}`
+                    ) : (
+                      `Vol ${article.volume}`
+                    )}
                   </>
                 )}
                 {article.pageRange && <>{' · '}pp. {article.pageRange}</>}
